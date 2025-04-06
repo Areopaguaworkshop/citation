@@ -1,0 +1,28 @@
+[project]
+name = "citation"
+version = "0.1.0"
+description = "Add your description here"
+authors = [
+    { name = "ajia", email = "yyjfwoaini@gmail.com" }
+]
+dependencies = [
+    "marker-pdf>=1.6.1",
+    "dspy>=2.6.12",
+    "pymupdf>=1.25.4",
+]
+readme = "README.md"
+requires-python = ">= 3.12"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.rye]
+managed = true
+dev-dependencies = []
+
+[tool.hatch.metadata]
+allow-direct-references = true
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/citation"]
