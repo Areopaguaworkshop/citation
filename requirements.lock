@@ -12,13 +12,13 @@
 -e file:.
 aiohappyeyeballs==2.6.1
     # via aiohttp
-aiohttp==3.11.14
+aiohttp==3.11.18
     # via datasets
     # via fsspec
     # via litellm
 aiosignal==1.3.2
     # via aiohttp
-alembic==1.15.1
+alembic==1.15.2
     # via optuna
 annotated-types==0.7.0
     # via pydantic
@@ -39,15 +39,17 @@ attrs==25.3.0
     # via referencing
 backoff==2.2.1
     # via dspy
-beautifulsoup4==4.13.3
+beautifulsoup4==4.13.4
     # via markdownify
 cachetools==5.5.2
     # via dspy
     # via google-auth
-certifi==2025.1.31
+certifi==2025.4.26
     # via httpcore
     # via httpx
     # via requests
+cfgv==3.4.0
+    # via pre-commit
 charset-normalizer==3.4.1
     # via requests
 click==8.1.8
@@ -59,60 +61,65 @@ cloudpickle==3.1.1
     # via dspy
 colorlog==6.9.0
     # via optuna
-datasets==3.4.1
+datasets==3.5.1
     # via dspy
 dill==0.3.8
     # via datasets
     # via multiprocess
 diskcache==5.6.3
     # via dspy
+distlib==0.3.9
+    # via virtualenv
 distro==1.9.0
     # via anthropic
     # via openai
-dspy==2.6.12
+dspy==2.6.21
     # via citation
 filelock==3.18.0
     # via datasets
     # via huggingface-hub
     # via torch
     # via transformers
+    # via virtualenv
 filetype==1.2.0
     # via marker-pdf
     # via surya-ocr
-frozenlist==1.5.0
+frozenlist==1.6.0
     # via aiohttp
     # via aiosignal
-fsspec==2024.12.0
+fsspec==2025.3.0
     # via datasets
     # via huggingface-hub
     # via torch
 ftfy==6.3.1
     # via marker-pdf
-google-auth==2.38.0
+google-auth==2.39.0
     # via google-genai
-google-genai==1.5.0
+google-genai==1.12.1
     # via marker-pdf
-greenlet==3.1.1
+greenlet==3.2.1
     # via sqlalchemy
-h11==0.14.0
+h11==0.16.0
     # via httpcore
-httpcore==1.0.7
+httpcore==1.0.9
     # via httpx
 httpx==0.28.1
     # via anthropic
     # via google-genai
     # via litellm
     # via openai
-huggingface-hub==0.29.3
+huggingface-hub==0.30.2
     # via datasets
     # via tokenizers
     # via transformers
+identify==2.6.10
+    # via pre-commit
 idna==3.10
     # via anyio
     # via httpx
     # via requests
     # via yarl
-importlib-metadata==8.6.1
+importlib-metadata==8.7.0
     # via litellm
 jinja2==3.1.6
     # via litellm
@@ -123,83 +130,94 @@ jiter==0.9.0
 joblib==1.4.2
     # via dspy
     # via scikit-learn
-json-repair==0.39.1
+json-repair==0.43.0
     # via dspy
 jsonschema==4.23.0
     # via litellm
-jsonschema-specifications==2024.10.1
+jsonschema-specifications==2025.4.1
     # via jsonschema
-litellm==1.63.11
+litellm==1.67.4.post1
     # via dspy
 magicattr==0.1.6
     # via dspy
-mako==1.3.9
+mako==1.3.10
     # via alembic
+markdown-it-py==3.0.0
+    # via rich
 markdown2==2.5.3
     # via marker-pdf
 markdownify==0.13.1
     # via marker-pdf
-marker-pdf==1.6.1
+marker-pdf==1.6.2
     # via citation
 markupsafe==3.0.2
     # via jinja2
     # via mako
+mdurl==0.1.2
+    # via markdown-it-py
 mpmath==1.3.0
     # via sympy
-multidict==6.2.0
+multidict==6.4.3
     # via aiohttp
     # via yarl
 multiprocess==0.70.16
     # via datasets
 networkx==3.4.2
     # via torch
-numpy==2.2.4
+nodeenv==1.9.1
+    # via pre-commit
+numpy==2.2.5
     # via datasets
+    # via dspy
     # via opencv-python-headless
     # via optuna
     # via pandas
     # via scikit-learn
     # via scipy
     # via transformers
-nvidia-cublas-cu12==12.4.5.8
+nvidia-cublas-cu12==12.6.4.1
     # via nvidia-cudnn-cu12
     # via nvidia-cusolver-cu12
     # via torch
-nvidia-cuda-cupti-cu12==12.4.127
+nvidia-cuda-cupti-cu12==12.6.80
     # via torch
-nvidia-cuda-nvrtc-cu12==12.4.127
+nvidia-cuda-nvrtc-cu12==12.6.77
     # via torch
-nvidia-cuda-runtime-cu12==12.4.127
+nvidia-cuda-runtime-cu12==12.6.77
     # via torch
-nvidia-cudnn-cu12==9.1.0.70
+nvidia-cudnn-cu12==9.5.1.17
     # via torch
-nvidia-cufft-cu12==11.2.1.3
+nvidia-cufft-cu12==11.3.0.4
     # via torch
-nvidia-curand-cu12==10.3.5.147
+nvidia-cufile-cu12==1.11.1.6
     # via torch
-nvidia-cusolver-cu12==11.6.1.9
+nvidia-curand-cu12==10.3.7.77
     # via torch
-nvidia-cusparse-cu12==12.3.1.170
+nvidia-cusolver-cu12==11.7.1.2
+    # via torch
+nvidia-cusparse-cu12==12.5.4.2
     # via nvidia-cusolver-cu12
     # via torch
-nvidia-cusparselt-cu12==0.6.2
+nvidia-cusparselt-cu12==0.6.3
     # via torch
-nvidia-nccl-cu12==2.21.5
+nvidia-nccl-cu12==2.26.2
     # via torch
-nvidia-nvjitlink-cu12==12.4.127
+nvidia-nvjitlink-cu12==12.6.85
+    # via nvidia-cufft-cu12
     # via nvidia-cusolver-cu12
     # via nvidia-cusparse-cu12
     # via torch
-nvidia-nvtx-cu12==12.4.127
+nvidia-nvtx-cu12==12.6.77
     # via torch
-openai==1.66.3
+openai==1.76.0
     # via dspy
     # via litellm
+    # via marker-pdf
 opencv-python-headless==4.11.0.86
     # via surya-ocr
-optuna==4.2.1
+optuna==4.3.0
     # via dspy
-packaging==24.2
+packaging==25.0
     # via datasets
     # via huggingface-hub
     # via optuna
@@ -212,19 +230,22 @@ pdftext==0.6.2
 pillow==10.4.0
     # via marker-pdf
     # via surya-ocr
-platformdirs==4.3.6
+platformdirs==4.3.7
     # via surya-ocr
-propcache==0.3.0
+    # via virtualenv
+pre-commit==4.2.0
+    # via marker-pdf
+propcache==0.3.1
     # via aiohttp
     # via yarl
-pyarrow==19.0.1
+pyarrow==20.0.0
     # via datasets
 pyasn1==0.6.1
     # via pyasn1-modules
     # via rsa
-pyasn1-modules==0.4.1
+pyasn1-modules==0.4.2
     # via google-auth
-pydantic==2.10.6
+pydantic==2.11.3
     # via anthropic
     # via dspy
     # via google-genai
@@ -234,32 +255,35 @@ pydantic==2.10.6
     # via pdftext
     # via pydantic-settings
     # via surya-ocr
-pydantic-core==2.27.2
+pydantic-core==2.33.1
     # via pydantic
-pydantic-settings==2.8.1
+pydantic-settings==2.9.1
     # via marker-pdf
     # via pdftext
     # via surya-ocr
-pymupdf==1.25.4
+pygments==2.19.1
+    # via rich
+pymupdf==1.25.5
     # via citation
 pypdfium2==4.30.0
     # via pdftext
     # via surya-ocr
 python-dateutil==2.9.0.post0
     # via pandas
-python-dotenv==1.0.1
+python-dotenv==1.1.0
     # via litellm
     # via marker-pdf
     # via pydantic-settings
     # via surya-ocr
-pytz==2025.1
+pytz==2025.2
     # via pandas
 pyyaml==6.0.2
     # via datasets
     # via huggingface-hub
     # via optuna
+    # via pre-commit
     # via transformers
-rapidfuzz==3.12.2
+rapidfuzz==3.13.0
     # via marker-pdf
 referencing==0.36.2
     # via jsonschema
@@ -276,10 +300,12 @@ requests==2.32.3
     # via huggingface-hub
     # via tiktoken
     # via transformers
-rpds-py==0.23.1
+rich==14.0.0
+    # via dspy
+rpds-py==0.24.0
     # via jsonschema
     # via referencing
-rsa==4.9
+rsa==4.9.1
     # via google-auth
 safetensors==0.5.3
     # via transformers
@@ -287,8 +313,9 @@ scikit-learn==1.6.1
     # via marker-pdf
 scipy==1.15.2
     # via scikit-learn
-setuptools==76.0.0
+setuptools==80.0.0
     # via torch
+    # via triton
 six==1.17.0
     # via markdownify
     # via python-dateutil
@@ -296,16 +323,16 @@ sniffio==1.3.1
     # via anthropic
     # via anyio
     # via openai
-soupsieve==2.6
+soupsieve==2.7
     # via beautifulsoup4
-sqlalchemy==2.0.39
+sqlalchemy==2.0.40
     # via alembic
     # via optuna
-surya-ocr==0.13.0
+surya-ocr==0.13.1
     # via marker-pdf
-sympy==1.13.1
+sympy==1.14.0
     # via torch
-tenacity==9.0.0
+tenacity==9.1.2
     # via dspy
 threadpoolctl==3.6.0
     # via scikit-learn
@@ -314,7 +341,7 @@ tiktoken==0.9.0
 tokenizers==0.21.1
     # via litellm
     # via transformers
-torch==2.6.0
+torch==2.7.0
     # via marker-pdf
     # via surya-ocr
 tqdm==4.67.1
@@ -325,12 +352,12 @@ tqdm==4.67.1
     # via openai
     # via optuna
     # via transformers
-transformers==4.49.0
+transformers==4.51.3
     # via marker-pdf
     # via surya-ocr
-triton==3.2.0
+triton==3.3.0
     # via torch
-typing-extensions==4.12.2
+typing-extensions==4.13.2
     # via alembic
     # via anthropic
     # via anyio
@@ -343,19 +370,25 @@ typing-extensions==4.12.2
     # via referencing
     # via sqlalchemy
     # via torch
-tzdata==2025.1
+    # via typing-inspection
+typing-inspection==0.4.0
+    # via pydantic
+    # via pydantic-settings
+tzdata==2025.2
     # via pandas
 ujson==5.10.0
     # via dspy
-urllib3==2.3.0
+urllib3==2.4.0
     # via requests
+virtualenv==20.30.0
+    # via pre-commit
 wcwidth==0.2.13
     # via ftfy
-websockets==14.2
+websockets==15.0.1
     # via google-genai
 xxhash==3.5.0
     # via datasets
-yarl==1.18.3
+yarl==1.20.0
     # via aiohttp
 zipp==3.21.0
     # via importlib-metadata

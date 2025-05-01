@@ -11,3 +11,9 @@ Speaker last name, First name. “Video Title.” Lecture Series, University Nam
 
 For url: 
 Footnote If an online source is also a print source (a journal or newspaper article, etc.) or has a clear online publishing date (such as online news sources), footnote it in the same way as you would footnote the source if it were in print, adding the URL and access date if the information is time sensitive
+
+For Video
+
+
+For audio 
+
