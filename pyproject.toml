@@ -1,7 +1,7 @@
 [project]
 name = "citation"
 version = "0.1.0"
-description = "Add your description here"
+description = "Extract human-readable citation information from pdf, url, video and audio files using LLM"
 authors = [
     { name = "ajia", email = "yyjfwoaini@gmail.com" }
 ]
@@ -9,6 +9,11 @@ dependencies = [
     "marker-pdf>=1.6.1",
     "dspy>=2.6.12",
     "pymupdf>=1.25.4",
+    "pypdf>=3.0.0",
+    "bibtexparser>=1.4.0",
+    "pyyaml>=6.0",
+    "beautifulsoup4>=4.9.3",
+    "requests>=2.25.1"
 ]
 readme = "README.md"
 requires-python = ">= 3.12"
@@ -22,10 +27,13 @@ build-backend = "hatchling.build"
 
 [tool.rye]
 managed = true
-dev-dependencies = []
+dev-dependencies = [
+    "pytest>=7.0.0",
+    "pytest-cov>=2.12.1"
+]
 
 [tool.hatch.metadata]
 allow-direct-references = true
 
 [tool.hatch.build.targets.wheel]
-packages = ["src/citation"]
+packages = ["citation"]
