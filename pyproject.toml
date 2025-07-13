@@ -1,12 +1,20 @@
 [project]
 name = "citation"
-version = "0.1.0"
-description = "Extracts citations from PDF files."
-authors = [
-    { name = "ajia", email = "yyjfwoaini@gmail.com" }
-]
+version = "0.10.02"
+description = "Extracts citations from PDF files and URLs in Chicago Author-Date style."
+authors = [{ name = "ajia", email = "yyjfwoaini@gmail.com" }]
 dependencies = [
-    "ocrmypdf>=16.10.4",
+  "ocrmypdf>=16.10.4",
+  "PyMuPDF>=1.23.0",
+  "refextract>=0.3.0",
+  "scholarly>=1.7.0",
+  "dspy-ai>=2.4.0",
+  "requests>=2.31.0",
+  "beautifulsoup4>=4.12.0",
+  "pyyaml>=6.0.0",
+  "python-dateutil>=2.8.0",
+  "lxml>=4.9.0",
+  "urllib3>=2.0.0",
 ]
 readme = "README.md"
 requires-python = ">= 3.12"
@@ -20,10 +28,7 @@ build-backend = "hatchling.build"
 
 [tool.rye]
 managed = true
-dev-dependencies = [
-    "pytest>=7.0.0",
-    "pytest-cov>=2.12.1"
-]
+dev-dependencies = ["pytest>=7.0.0", "pytest-cov>=2.12.1"]
 
 [tool.hatch.metadata]
 allow-direct-references = true

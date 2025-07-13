@@ -1,0 +1,10 @@
+Test Academic Paper
+Author: John Smith
+Journal of Example Studies
+Volume 5, Issue 2, 2024
+Pages 123-145
+DOI: 10.1234/example.2024.001
+
+This is a test academic paper for citation extraction.
+It contains sample metadata in a typical academic format.
+The paper demonstrates the extraction of citation information.

@@ -1,3 +1,8 @@
+Instruction for LLM:
+- Role: You are a code assistant, you write most of the code according to the following descriptions.
+- Everytime you write code, you should understand the code, workflow and pyproject (this project is using rye as package manager.) very well.
+- You only write the code as it is necessary. You can remove the unrelated code.
+
 # Introduction and goal
 
 Citation is a tool to extract the human-readable citation information from pdf, url by using LLM.

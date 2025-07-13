@@ -17,25 +17,11 @@ logging.basicConfig(
     format="%(asctime)s - %(levelname)s - %(message)s"
 )
 
-# Try to import refextract, but handle gracefully if not available
-try:
-    import refextract
-    REFEXTRACT_AVAILABLE = True
-except ImportError:
-    REFEXTRACT_AVAILABLE = False
-    logging.warning("refextract not available, skipping refextract-based extraction")
-
-# Try to import scholarly, but handle gracefully if not available  
-try:
-    import scholarly
-    SCHOLARLY_AVAILABLE = True
-except ImportError:
-    SCHOLARLY_AVAILABLE = False
-    logging.warning("scholarly not available, skipping Google Scholar search")
-
 class CitationExtractor:
     def __init__(self, llm_model="ollama/qwen3"):
         """Initialize the citation extractor."""
+        # Initialize DSPy with Ollama
+        import dspy
         self.llm = dspy.LM(model=llm_model, base_url="http://localhost:11434")
         dspy.settings.configure(lm=self.llm)
         
@@ -137,44 +123,42 @@ class CitationExtractor:
     
     def _extract_with_refextract(self, pdf_path: str) -> Dict:
         """Extract metadata using refextract."""
-        if not REFEXTRACT_AVAILABLE:
-            logging.info("Refextract not available, skipping")
-            return {}
-        
         try:
-            # Use the Python API instead of subprocess
-            references = refextract.extract_references_from_file(pdf_path)
+            # Use subprocess to call refextract
+            result = subprocess.run(
+                ['refextract', pdf_path],
+                capture_output=True,
+                text=True,
+                timeout=30
+            )
             
-            # Parse the references to extract metadata
-            metadata = {}
-            if references:
-                # This is a simplified parsing - refextract returns a list of reference dictionaries
-                for ref in references:
-                    if 'title' in ref:
-                        metadata['title'] = ref['title']
-                    if 'author' in ref:
-                        metadata['author'] = ref['author']
-                    if 'year' in ref:
-                        metadata['year'] = ref['year']
-                    if 'journal' in ref:
-                        metadata['journal_name'] = ref['journal']
-                    if 'publisher' in ref:
-                        metadata['publisher'] = ref['publisher']
+            if result.returncode == 0:
+                # Parse refextract output
+                # Note: This is a simplified parsing - you may need to adjust based on actual output
+                metadata = {}
+                lines = result.stdout.split('\n')
+                for line in lines:
+                    if 'title:' in line.lower():
+                        metadata['title'] = line.split(':', 1)[1].strip()
+                    elif 'author:' in line.lower():
+                        metadata['author'] = line.split(':', 1)[1].strip()
+                    elif 'year:' in line.lower():
+                        metadata['year'] = line.split(':', 1)[1].strip()
                 
                 logging.info(f"Refextract metadata: {metadata}")
-            
-            return metadata
+                return metadata
+            else:
+                logging.warning(f"Refextract failed: {result.stderr}")
+                return {}
         except Exception as e:
             logging.error(f"Error with refextract: {e}")
             return {}
     
     def _search_with_scholarly(self, title: str) -> Dict:
         """Search Google Scholar using scholarly library."""
-        if not SCHOLARLY_AVAILABLE:
-            logging.info("Scholarly not available, skipping Google Scholar search")
-            return {}
-        
         try:
+            import scholarly
+            
             # Search for the publication
             search_query = scholarly.search_pubs(title)
             pub = next(search_query, None)
@@ -241,8 +225,6 @@ class CitationExtractor:
             logging.info("PDF is not searchable, running OCR...")
             
             output_dir = os.path.dirname(pdf_path)
-            if not output_dir:
-                output_dir = "."
             ocr_output = os.path.join(output_dir, f"ocr_{os.path.basename(pdf_path)}")
             
             # Determine OCR pages based on document type
@@ -337,59 +319,23 @@ class CitationExtractor:
     def _extract_url_with_anystyle(self, url: str) -> Dict:
         """Extract citation from URL using anystyle."""
         try:
-            # First get the content from the URL
-            response = requests.get(url, timeout=10)
-            soup = BeautifulSoup(response.content, 'html.parser')
+            # Use anystyle via subprocess
+            result = subprocess.run(
+                ['anystyle', 'parse', url],
+                capture_output=True,
+                text=True,
+                timeout=30
+            )
             
-            # Extract text content
-            text_content = soup.get_text()
-            
-            # Save text to a temporary file for anystyle
-            import tempfile
-            with tempfile.NamedTemporaryFile(mode='w', suffix='.txt', delete=False) as tmp_file:
-                tmp_file.write(text_content)
-                tmp_file_path = tmp_file.name
-            
-            try:
-                # Use anystyle to parse the text
-                result = subprocess.run(
-                    ['anystyle', 'parse', tmp_file_path],
-                    capture_output=True,
-                    text=True,
-                    timeout=30
-                )
-                
-                if result.returncode == 0:
-                    # Try to parse the output as JSON
-                    try:
-                        citations = json.loads(result.stdout)
-                        if citations:
-                            # Take the first citation
-                            citation = citations[0]
-                            citation_info = {}
-                            
-                            # Map anystyle fields to our format
-                            if 'title' in citation:
-                                citation_info['title'] = citation['title']
-                            if 'author' in citation:
-                                citation_info['author'] = citation['author']
-                            if 'date' in citation:
-                                citation_info['date'] = citation['date']
-                            if 'publisher' in citation:
-                                citation_info['publisher'] = citation['publisher']
-                            
-                            logging.info(f"Anystyle extraction: {citation_info}")
-                            return citation_info
-                    except json.JSONDecodeError:
-                        logging.warning("Could not parse anystyle output as JSON")
-                        return {}
-                else:
-                    logging.warning(f"Anystyle failed: {result.stderr}")
-                    return {}
-            finally:
-                # Clean up temporary file
-                os.unlink(tmp_file_path)
-                
+            if result.returncode == 0:
+                # Parse anystyle output (adjust based on actual format)
+                citation_info = {}
+                # This is a placeholder - you'll need to parse the actual anystyle output
+                logging.info(f"Anystyle output: {result.stdout}")
+                return citation_info
+            else:
+                logging.warning(f"Anystyle failed: {result.stderr}")
+                return {}
         except Exception as e:
             logging.error(f"Error with anystyle: {e}")
             return {}
