@@ -40,6 +40,7 @@ Options:
 - `--output-dir`, `-o`: Output directory for citation files (default: citations)
 - `--verbose`, `-v`: Enable verbose logging
 - `--lang`, `-l`: Language for OCR (default: eng+chi_sim)
+- `--type`, `-t`: Manually specify document type (book, thesis, journal, bookchapter)
 
 ### Python API
 
@@ -48,8 +49,8 @@ from citation import CitationExtractor
 
 extractor = CitationExtractor()
 
-# Auto-detect input type
-citation_info = extractor.extract_citation("document.pdf")
+# Auto-detect input type (output_dir and doc_type_override are optional)
+citation_info = extractor.extract_citation("document.pdf", output_dir="citations", doc_type_override="book")
 citation_info = extractor.extract_citation("https://example.com/article")
 
 # Or use specific methods
@@ -72,25 +73,26 @@ The system is organized into modular components:
 The extraction follows a multi-step process:
 
 ### For PDFs:
-1. **PDF Analysis**: Determine document type based on page count
-2. **Metadata Extraction**: Use pdfx library for title and metadata
-3. **Scholarly Search**: Query Google Scholar for additional information
-4. **OCR Processing**: Make PDF searchable if needed
-5. **LLM Extraction**: Use DSPy with Ollama/Qwen3 for final extraction
-6. **Output**: Save as YAML and JSON files
+1. **PDF Analysis**: Determine document type based on page count.
+2. **Metadata Extraction**: Use **PyMuPDF (fitz)** for fast title and metadata extraction.
+3. **Scholarly Search**: Query Google Scholar for additional information (if `scholarly` is installed).
+4. **OCR Processing**: Make PDF searchable using `ocrmypdf` if needed.
+5. **LLM Extraction**: Use DSPy with Ollama/Qwen3 for final extraction if metadata is insufficient.
+6. **Output**: Save as YAML and JSON files.
 
 ### For URLs:
-1. **URL Type Detection**: Determine if text-based or media content
-2. **Content Extraction**: Use anystyle for text content or web scraping for media
-3. **Output**: Save as YAML and JSON files
+1. **URL Type Detection**: Determine if text-based or media content.
+2. **Content Extraction**: Use a multi-layered approach with `trafilatura`, `newspaper3k`, and `BeautifulSoup` for robust content extraction.
+3. **Output**: Save as YAML and JSON files.
 
 ## Requirements
 
 - Python 3.12+
 - Ollama with Qwen3 model running locally
-- OCRmyPDF for PDF processing
-- Anystyle for URL citation extraction
-- pdfx for PDF metadata extraction
+- **PyMuPDF** (`fitz`) for PDF metadata extraction
+- **OCRmyPDF** for PDF processing
+- **trafilatura**, **newspaper3k**, **BeautifulSoup4** for URL content extraction
+- **scholarly** (optional) for enhanced metadata from Google Scholar
 
 ## Testing
 
@@ -103,8 +105,8 @@ Add your PDF examples to the `examples/` directory for testing.
 
 ## Key Improvements
 
-- **Auto-detection**: No need to specify `--pdf` or `--url` flags
-- **Modular design**: Separated concerns into utils, model, and main modules
-- **Better metadata extraction**: Uses pdfx instead of refextract
-- **Robust error handling**: Graceful fallbacks when dependencies are unavailable
-- **Comprehensive testing**: Full test coverage for all functionality
+- **Auto-detection**: No need to specify `--pdf` or `--url` flags.
+- **Modular design**: Separated concerns into utils, model, and main modules.
+- **Better metadata extraction**: Uses **PyMuPDF (fitz)** for robust and fast PDF metadata extraction.
+- **Robust error handling**: Graceful fallbacks when dependencies are unavailable.
+- **Comprehensive testing**: Full test coverage for all functionality.
