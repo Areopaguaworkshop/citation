@@ -6,6 +6,9 @@ dist/
 wheels/
 *.egg-info
 example/ 
-
+examples/**/*
+citations/**/*
+person/**/*
+test/**/*
 # venv
 .venv

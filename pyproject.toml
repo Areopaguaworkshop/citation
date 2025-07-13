@@ -4,17 +4,19 @@ version = "0.10.02"
 description = "Extracts citations from PDF files and URLs in Chicago Author-Date style."
 authors = [{ name = "ajia", email = "yyjfwoaini@gmail.com" }]
 dependencies = [
-  "ocrmypdf>=16.10.4",
-  "PyMuPDF>=1.23.0",
-  "refextract>=0.3.0",
-  "scholarly>=1.7.0",
-  "dspy-ai>=2.4.0",
-  "requests>=2.31.0",
-  "beautifulsoup4>=4.12.0",
-  "pyyaml>=6.0.0",
-  "python-dateutil>=2.8.0",
-  "lxml>=4.9.0",
-  "urllib3>=2.0.0",
+    "ocrmypdf>=16.10.4",
+    "PyMuPDF>=1.23.0",
+    "refextract>=0.3.0",
+    "scholarly>=1.7.0",
+    "dspy-ai>=2.4.0",
+    "requests>=2.31.0",
+    "beautifulsoup4>=4.12.0",
+    "pyyaml>=6.0.0",
+    "python-dateutil>=2.8.0",
+    "lxml>=4.9.0",
+    "urllib3>=2.0.0",
+    "trafilatura>=1.6.0",
+    "newspaper3k>=0.2.8",
 ]
 readme = "README.md"
 requires-python = ">= 3.12"

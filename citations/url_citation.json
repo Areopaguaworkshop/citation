@@ -1,10 +1,8 @@
 {
-  "author": [
-    {
-      "family": "Domain",
-      "given": "Example"
-    }
-  ],
-  "url": "https://www.example.com",
+  "title": "光从东方来",
+  "date": "2025-01-01",
+  "publisher": "光从东方来",
+  "author": "ephremyuan",
+  "url": "https://www.gcdfl.org",
   "date_accessed": "2025-07-13"
 }

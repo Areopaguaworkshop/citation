@@ -9,10 +9,12 @@ def main():
         description='Extract citations from PDF files and URLs in Chicago Author-Date style.'
     )
     
-    # Input type
-    input_group = parser.add_mutually_exclusive_group(required=True)
-    input_group.add_argument('--pdf', '-p', help='Path to the input PDF file')
-    input_group.add_argument('--url', '-u', help='URL to extract citation from')
+    # Input (auto-detected)
+    parser.add_argument('input', help='Path to PDF file or URL to extract citation from')
+    
+    # Document type option
+    parser.add_argument('--type', '-t', choices=['book', 'thesis', 'journal', 'bookchapter'],
+                       help='Document type (overrides automatic detection based on page count)')
     
     # Output options
     parser.add_argument('--output-dir', '-o', default='citations', 
@@ -36,18 +38,9 @@ def main():
         # Initialize extractor
         extractor = CitationExtractor()
         
-        if args.pdf:
-            # Validate PDF file exists
-            if not os.path.exists(args.pdf):
-                print(f"Error: PDF file not found: {args.pdf}", file=sys.stderr)
-                sys.exit(1)
-            
-            print(f"Processing PDF: {args.pdf}")
-            citation_info = extractor.extract_from_pdf(args.pdf, args.output_dir)
-            
-        elif args.url:
-            print(f"Processing URL: {args.url}")
-            citation_info = extractor.extract_from_url(args.url, args.output_dir)
+        # Auto-detect input type and process
+        print(f"Processing: {args.input}")
+        citation_info = extractor.extract_citation(args.input, args.output_dir, doc_type_override=args.type)
         
         if citation_info:
             print("\n" + "="*50)
