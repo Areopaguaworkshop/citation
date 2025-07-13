@@ -3,6 +3,8 @@ from newspaper import Article
 import os
 import subprocess
 import logging
+import trafilatura
+from newspaper import Article
 import json
 import fitz  # PyMuPDF
 import requests
@@ -15,7 +17,7 @@ from .utils import (
     clean_url, format_author_name, extract_publisher_from_domain,
     is_url, is_pdf_file, determine_document_type, ensure_searchable_pdf,
     extract_pdf_text, determine_url_type, has_required_info, save_citation,
-    guess_title_from_filename, detect_page_numbers
+    guess_title_from_filename, detect_page_numbers, clean_url, format_author_name, extract_publisher_from_domain
 )
 from .model import CitationLLM
 
@@ -101,7 +103,7 @@ class CitationExtractor:
                     
                     # Add page numbers for journal and bookchapter
                     if doc_type in ["journal", "bookchapter"] and llm_citation:
-                        first_page, last_page = detect_page_numbers(searchable_pdf)
+                        first_page, last_page = detect_page_numbers, clean_url, format_author_name, extract_publisher_from_domain(searchable_pdf)
                         if first_page and last_page:
                             llm_citation['page_numbers'] = f"{first_page}-{last_page}"
                             print(f"📄 Page numbers detected: {first_page}-{last_page}")
@@ -137,8 +139,8 @@ class CitationExtractor:
             
             # Step 2: Extract using anystyle for text-based content
             if url_type == "text":
-                print("🔍 Step 2: Extracting with anystyle...")
-                citation_info = self._extract_url_with_anystyle(url)
+                print("🔍 Step 2: Extracting with trafilatura...")
+                citation_info = self._extract_url_with_trafilatura(url)
             else:
                 # Step 3: Extract metadata for video/audio
                 print("🔍 Step 2: Extracting media metadata...")
@@ -270,103 +272,95 @@ class CitationExtractor:
             logging.error(f"Error with scholarly search: {e}")
             return {}
     
-    def _extract_url_with_anystyle(self, url: str) -> Dict:
-        """Extract citation from URL using anystyle."""
+    def _extract_url_with_trafilatura(self, url: str) -> Dict:
+        """Extract citation from URL using trafilatura and newspaper3k."""
         try:
-            # First get the content from the URL
-            response = requests.get(url, timeout=10)
-            soup = BeautifulSoup(response.content, 'html.parser')
-            
-            # Extract text content
-            text_content = soup.get_text()
-            
-            # Save text to a temporary file for anystyle
-            with tempfile.NamedTemporaryFile(mode='w', suffix='.txt', delete=False) as tmp_file:
-                tmp_file.write(text_content)
-                tmp_file_path = tmp_file.name
-            
-            try:
-                # Use anystyle to parse the text
-                result = subprocess.run(
-                    ['anystyle', 'parse', tmp_file_path],
-                    capture_output=True,
-                    text=True,
-                    timeout=30
-                )
-                
-                if result.returncode == 0:
-                    # Try to parse the output as JSON
-                    try:
-                        citations = json.loads(result.stdout)
-                        if citations:
-                            # Take the first citation
-                            citation = citations[0]
-                            citation_info = {}
-                            
-                            # Map anystyle fields to our format
-                            if 'title' in citation:
-                                citation_info['title'] = citation['title']
-                            if 'author' in citation:
-                                citation_info['author'] = citation['author']
-                            if 'date' in citation:
-                                citation_info['date'] = citation['date']
-                            if 'publisher' in citation:
-                                citation_info['publisher'] = citation['publisher']
-                            
-                            print(f"📋 Anystyle extracted: {len(citation_info)} fields")
-                            logging.info(f"Anystyle extraction: {citation_info}")
-                            return citation_info
-                    except json.JSONDecodeError:
-                        logging.warning("Could not parse anystyle output as JSON")
-                        return {}
-                else:
-                    logging.warning(f"Anystyle failed: {result.stderr}")
-                    return {}
-            finally:
-                # Clean up temporary file
-                os.unlink(tmp_file_path)
-                
-        except Exception as e:
-            logging.error(f"Error with anystyle: {e}")
-            return {}
-    
-    def _extract_media_metadata(self, url: str) -> Dict:
-        """Extract metadata from media URLs."""
-        try:
-            # Basic web scraping for metadata
-            response = requests.get(url, timeout=10)
-            soup = BeautifulSoup(response.content, 'html.parser')
+            # Clean the URL
+            cleaned_url = clean_url(url)
+            print(f"🔧 URL cleaned: {cleaned_url}")
             
             citation_info = {}
             
-            # Extract title
-            title_tag = soup.find('title')
-            if title_tag:
-                citation_info['title'] = title_tag.get_text().strip()
+            # Step 1: Try trafilatura
+            print("🔍 Step 1: Extracting with trafilatura...")
+            downloaded = trafilatura.fetch_url(cleaned_url)
+            if downloaded:
+                metadata = trafilatura.extract_metadata(downloaded)
+                if metadata:
+                    if metadata.title:
+                        citation_info['title'] = metadata.title
+                    if metadata.author:
+                        citation_info['author'] = format_author_name(metadata.author)
+                    if metadata.date:
+                        citation_info['date'] = metadata.date
+                    if metadata.sitename:
+                        citation_info['publisher'] = metadata.sitename
+                    
+                    print(f"📝 Trafilatura extraction: {len(citation_info)} fields found")
+                    logging.info(f"Trafilatura metadata: {citation_info}")
             
-            # Extract meta information
-            meta_tags = soup.find_all('meta')
-            for tag in meta_tags:
-                name = tag.get('name', '').lower()
-                content = tag.get('content', '')
-                
-                if name == 'author':
-                    citation_info['author'] = content
-                elif name == 'date':
-                    citation_info['date'] = content
-                elif name == 'publisher':
-                    citation_info['publisher'] = content
+            # Step 2: Fallback to newspaper3k if needed
+            if not citation_info.get('title') or not citation_info.get('author'):
+                print("🔍 Step 2: Trying newspaper3k as fallback...")
+                try:
+                    article = Article(cleaned_url)
+                    article.download()
+                    article.parse()
+                    
+                    if not citation_info.get('title') and article.title:
+                        citation_info['title'] = article.title
+                        print(f"📝 Newspaper3k extracted title: {article.title}")
+                    
+                    if not citation_info.get('author') and article.authors:
+                        authors_str = ', '.join(article.authors)
+                        citation_info['author'] = format_author_name(authors_str)
+                        print(f"👥 Newspaper3k extracted authors: {article.authors}")
+                    
+                    if not citation_info.get('date') and article.publish_date:
+                        citation_info['date'] = article.publish_date.strftime('%Y-%m-%d')
+                        print(f"📅 Newspaper3k extracted date: {article.publish_date}")
+                        
+                except Exception as e:
+                    print(f"⚠️ Newspaper3k failed: {e}")
+                    logging.error(f"Newspaper3k error: {e}")
             
-            print(f"📋 Media metadata extracted: {len(citation_info)} fields")
-            logging.info(f"Media metadata: {citation_info}")
+            # Step 3: Fallback to HTML meta tags if still missing required fields
+            if not citation_info.get('title') or not citation_info.get('author'):
+                print("🔍 Step 3: Trying HTML meta tags as fallback...")
+                try:
+                    response = requests.get(cleaned_url, timeout=10)
+                    soup = BeautifulSoup(response.content, 'html.parser')
+                    
+                    # Extract title from meta tags or page title
+                    if not citation_info.get('title'):
+                        title_tag = soup.find('title')
+                        if title_tag:
+                            citation_info['title'] = title_tag.get_text().strip()
+                            print(f"📝 HTML title extracted: {citation_info['title']}")
+                    
+                    # Extract author from meta tags
+                    if not citation_info.get('author'):
+                        author_meta = soup.find('meta', attrs={'name': 'author'})
+                        if author_meta and author_meta.get('content'):
+                            citation_info['author'] = format_author_name(author_meta.get('content'))
+                            print(f"👤 HTML meta author extracted: {citation_info['author']}")
+                    
+                except Exception as e:
+                    print(f"⚠️ HTML meta extraction failed: {e}")
+                    logging.error(f"HTML meta extraction error: {e}")
+            
+            # Step 4: Extract publisher from domain if not provided
+            if not citation_info.get('publisher'):
+                domain_publisher = extract_publisher_from_domain(cleaned_url)
+                if domain_publisher:
+                    citation_info['publisher'] = domain_publisher
+                    print(f"🏢 Publisher derived from domain: {domain_publisher}")
+            
             return citation_info
             
         except Exception as e:
-            logging.error(f"Error extracting media metadata: {e}")
+            logging.error(f"Error with trafilatura: {e}")
             return {}
-
-
-# Legacy functions for backward compatibility
 def get_pdf_citation_text(input_pdf_path, output_dir="processed_pdfs", lang="eng"):
     """Legacy function for backward compatibility."""
     extractor = CitationExtractor()
