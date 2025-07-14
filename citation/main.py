@@ -46,7 +46,7 @@ class CitationExtractor:
     def extract_citation(
         self,
         input_source: str,
-        output_dir: str = "citations",
+        output_dir: str = "example",
         doc_type_override: Optional[str] = None,
     ) -> Optional[Dict]:
         """Main function to extract citation from either PDF or URL."""
@@ -69,8 +69,7 @@ class CitationExtractor:
                 logging.info(f"Detected media file input: {input_source}")
                 return self.extract_from_media_file(input_source, output_dir)
             else:
-                logging.error(
-                    f"Unknown or unsupported input type: {input_source}")
+                logging.error(f"Unknown or unsupported input type: {input_source}")
                 if os.path.exists(input_source):
                     logging.error(f"File exists but is not a supported format")
                 else:
@@ -86,7 +85,7 @@ class CitationExtractor:
     def extract_from_pdf(
         self,
         input_pdf_path: str,
-        output_dir: str = "citations",
+        output_dir: str = "example",
         doc_type_override: Optional[str] = None,
     ) -> Optional[Dict]:
         """Extract citation from PDF following the new LLM-focused workflow."""
@@ -102,8 +101,7 @@ class CitationExtractor:
 
             # Step 2: Ensure PDF is searchable (OCR if needed)
             print("🔍 Step 2: Ensuring PDF is searchable...")
-            searchable_pdf_path = ensure_searchable_pdf(
-                input_pdf_path, num_pages)
+            searchable_pdf_path = ensure_searchable_pdf(input_pdf_path, num_pages)
 
             # Step 3: Determine document type
             print("🔍 Step 3: Determining document type...")
@@ -113,8 +111,7 @@ class CitationExtractor:
             else:
                 # Initial determination by page count
                 doc_type = determine_document_type(num_pages)
-                print(f"📋 Initial document type: {
-                      doc_type} ({num_pages} pages)")
+                print(f"📋 Initial document type: {doc_type} ({num_pages} pages)")
 
             # Step 4: Extract text for LLM
             print("🔍 Step 4: Extracting text for LLM...")
@@ -150,13 +147,11 @@ class CitationExtractor:
                     )
                     if enhanced_type != doc_type:
                         doc_type = enhanced_type
-                        print(f"📋 Enhanced analysis suggests {
-                              doc_type.upper()}.")
+                        print(f"📋 Enhanced analysis suggests {doc_type.upper()}.")
 
             # Step 6: Use LLM to extract citation
             print(f"🤖 Step 6: Using LLM to extract {doc_type} citation...")
-            citation_info = self.llm.extract_citation_from_text(
-                pdf_text, doc_type)
+            citation_info = self.llm.extract_citation_from_text(pdf_text, doc_type)
 
             if citation_info:
                 # Post-process and augment LLM output
@@ -164,14 +159,13 @@ class CitationExtractor:
                     doc_type in ["journal", "bookchapter"]
                     and "page_numbers" not in citation_info
                 ):
-                    first_page, last_page = detect_page_numbers(
-                        searchable_pdf_path)
+                    first_page, last_page = detect_page_numbers(searchable_pdf_path)
                     if first_page and last_page:
-                        citation_info["page_numbers"] = f"{
-                            first_page}-{last_page}"
+                        citation_info["page_numbers"] = f"{first_page}-{last_page}"
                         print(
-                            f"📄 Page numbers detected and added: {
-                                first_page}-{last_page}"
+                            f"📄 Page numbers detected and added: {first_page}-{
+                                last_page
+                            }"
                         )
 
                 # Step 7: Save output
@@ -188,7 +182,7 @@ class CitationExtractor:
             return None
 
     def extract_from_media_file(
-        self, input_media_path: str, output_dir: str = "citations"
+        self, input_media_path: str, output_dir: str = "example"
     ) -> Optional[Dict]:
         """Extract citation from a local video/audio file."""
         try:
@@ -205,10 +199,8 @@ class CitationExtractor:
                 citation_info["title"] = title
             else:
                 # Fallback to filename
-                base_name = os.path.splitext(
-                    os.path.basename(input_media_path))[0]
-                citation_info["title"] = base_name.replace(
-                    "_", " ").replace("-", " ")
+                base_name = os.path.splitext(os.path.basename(input_media_path))[0]
+                citation_info["title"] = base_name.replace("_", " ").replace("-", " ")
 
             # Author/Performer
             author = getattr(general_track, "performer", None) or getattr(
@@ -244,9 +236,7 @@ class CitationExtractor:
             logging.error(f"Error extracting citation from media file: {e}")
             return None
 
-    def extract_from_url(
-        self, url: str, output_dir: str = "citations"
-    ) -> Optional[Dict]:
+    def extract_from_url(self, url: str, output_dir: str = "example") -> Optional[Dict]:
         """Extract citation from URL."""
         try:
             print(f"🌐 Starting URL citation extraction...")
@@ -267,8 +257,7 @@ class CitationExtractor:
 
             if citation_info:
                 citation_info["url"] = url
-                citation_info["date_accessed"] = datetime.now().strftime(
-                    "%Y-%m-%d")
+                citation_info["date_accessed"] = datetime.now().strftime("%Y-%m-%d")
                 print("💾 Step 3: Saving citation files...")
                 save_citation(citation_info, url, output_dir)
                 print("✅ URL citation extraction completed successfully!")
@@ -316,16 +305,14 @@ class CitationExtractor:
                     if metadata.title:
                         citation_info["title"] = metadata.title
                     if metadata.author:
-                        citation_info["author"] = format_author_name(
-                            metadata.author)
+                        citation_info["author"] = format_author_name(metadata.author)
                     if metadata.date:
                         citation_info["date"] = metadata.date
                     if metadata.sitename:
                         citation_info["publisher"] = metadata.sitename
 
                     print(
-                        f"📝 Trafilatura extraction: {
-                            len(citation_info)} fields found"
+                        f"📝 Trafilatura extraction: {len(citation_info)} fields found"
                     )
                     logging.info(f"Trafilatura metadata: {citation_info}")
 
@@ -339,22 +326,18 @@ class CitationExtractor:
 
                     if not citation_info.get("title") and article.title:
                         citation_info["title"] = article.title
-                        print(f"📝 Newspaper3k extracted title: {
-                              article.title}")
+                        print(f"📝 Newspaper3k extracted title: {article.title}")
 
                     if not citation_info.get("author") and article.authors:
                         authors_str = ", ".join(article.authors)
-                        citation_info["author"] = format_author_name(
-                            authors_str)
-                        print(f"👥 Newspaper3k extracted authors: {
-                              article.authors}")
+                        citation_info["author"] = format_author_name(authors_str)
+                        print(f"👥 Newspaper3k extracted authors: {article.authors}")
 
                     if not citation_info.get("date") and article.publish_date:
                         citation_info["date"] = article.publish_date.strftime(
                             "%Y-%m-%d"
                         )
-                        print(f"📅 Newspaper3k extracted date: {
-                              article.publish_date}")
+                        print(f"📅 Newspaper3k extracted date: {article.publish_date}")
 
                 except Exception as e:
                     print(f"⚠️ Newspaper3k failed: {e}")
@@ -371,15 +354,12 @@ class CitationExtractor:
                     if not citation_info.get("title"):
                         title_tag = soup.find("title")
                         if title_tag:
-                            citation_info["title"] = title_tag.get_text(
-                            ).strip()
-                            print(f"📝 HTML title extracted: {
-                                  citation_info['title']}")
+                            citation_info["title"] = title_tag.get_text().strip()
+                            print(f"📝 HTML title extracted: {citation_info['title']}")
 
                     # Extract author from meta tags
                     if not citation_info.get("author"):
-                        author_meta = soup.find(
-                            "meta", attrs={"name": "author"})
+                        author_meta = soup.find("meta", attrs={"name": "author"})
                         if author_meta and author_meta.get("content"):
                             citation_info["author"] = format_author_name(
                                 author_meta.get("content")
@@ -399,8 +379,7 @@ class CitationExtractor:
                 domain_publisher = extract_publisher_from_domain(cleaned_url)
                 if domain_publisher:
                     citation_info["publisher"] = domain_publisher
-                    print(f"🏢 Publisher derived from domain: {
-                          domain_publisher}")
+                    print(f"🏢 Publisher derived from domain: {domain_publisher}")
 
             return citation_info
 
