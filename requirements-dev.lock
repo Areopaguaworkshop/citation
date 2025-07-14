@@ -38,11 +38,8 @@ attrs==25.3.0
     # via outcome
     # via referencing
     # via trio
-autosemver==0.5.5
-    # via refextract
 babel==2.17.0
     # via courlan
-    # via inspire-utils
     # via sphinx
 backoff==2.2.1
     # via dspy
@@ -56,7 +53,6 @@ bibtexparser==1.4.3
 cachetools==6.1.0
     # via dspy
 certifi==2025.7.9
-    # via dulwich
     # via httpcore
     # via httpx
     # via requests
@@ -107,8 +103,6 @@ dspy==2.6.27
     # via dspy-ai
 dspy-ai==2.6.27
     # via citation
-dulwich==0.19.16
-    # via autosemver
 fake-useragent==2.2.0
     # via scholarly
 feedfinder2==0.0.4
@@ -160,10 +154,6 @@ importlib-metadata==8.7.0
     # via litellm
 iniconfig==2.1.0
     # via pytest
-inspire-utils==3.0.65
-    # via refextract
-isbnlib==3.10.14
-    # via inspire-utils
 jieba3k==0.35.1
     # via newspaper3k
 jinja2==3.1.6
@@ -188,7 +178,6 @@ lxml==5.4.0
     # via citation
     # via free-proxy
     # via htmldate
-    # via inspire-utils
     # via justext
     # via lxml-html-clean
     # via newspaper3k
@@ -212,8 +201,6 @@ multidict==6.6.3
     # via yarl
 multiprocess==0.70.16
     # via datasets
-nameparser==1.1.3
-    # via inspire-utils
 newspaper3k==0.2.8
     # via citation
 nltk==3.9.1
@@ -278,12 +265,12 @@ pydantic-core==2.33.2
 pygments==2.19.1
     # via rich
     # via sphinx
+pymediainfo==7.0.1
+    # via citation
 pymupdf==1.26.3
     # via citation
 pyparsing==3.2.3
     # via bibtexparser
-pypdf2==1.28.6
-    # via refextract
 pysocks==1.7.1
     # via requests
     # via urllib3
@@ -295,14 +282,11 @@ python-dateutil==2.9.0.post0
     # via citation
     # via dateparser
     # via htmldate
-    # via inspire-utils
     # via newspaper3k
     # via pandas
 python-dotenv==1.1.1
     # via litellm
     # via scholarly
-python-magic==0.4.27
-    # via refextract
 pytz==2025.2
     # via dateparser
     # via pandas
@@ -315,8 +299,6 @@ pyyaml==6.0.2
 referencing==0.36.2
     # via jsonschema
     # via jsonschema-specifications
-refextract==1.1.4
-    # via citation
 regex==2024.11.6
     # via dateparser
     # via dspy
@@ -330,7 +312,6 @@ requests==2.32.4
     # via free-proxy
     # via huggingface-hub
     # via newspaper3k
-    # via refextract
     # via requests-file
     # via scholarly
     # via sphinx
@@ -354,9 +335,7 @@ sgmllib3k==1.0.0
     # via feedparser
 six==1.17.0
     # via feedfinder2
-    # via inspire-utils
     # via python-dateutil
-    # via refextract
 sniffio==1.3.1
     # via anyio
     # via openai
@@ -439,13 +418,9 @@ tzlocal==5.3.1
     # via dateparser
 ujson==5.10.0
     # via dspy
-unidecode==1.4.0
-    # via inspire-utils
-    # via refextract
 urllib3==2.5.0
     # via citation
     # via courlan
-    # via dulwich
     # via htmldate
     # via requests
     # via selenium

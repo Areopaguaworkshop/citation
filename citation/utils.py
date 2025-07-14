@@ -31,6 +31,21 @@ def is_pdf_file(file_path: str) -> bool:
         return False
 
 
+def is_media_file(file_path: str) -> bool:
+    """Check if the file is a video or audio file."""
+    if not os.path.exists(file_path):
+        return False
+    
+    # Common video and audio extensions
+    media_extensions = {
+        '.mp4', '.mkv', '.avi', '.mov', '.wmv', '.flv', '.webm',  # video
+        '.mp3', '.wav', '.aac', '.ogg', '.flac', '.m4a'  # audio
+    }
+    
+    _, ext = os.path.splitext(file_path)
+    return ext.lower() in media_extensions
+
+
 def determine_document_type(num_pages: int) -> str:
     """Determine document type based on page count."""
     if num_pages > 50:
@@ -253,15 +268,27 @@ def save_citation(citation_info: Dict, input_source: str, output_dir: str):
     import yaml
     import json
     
+    def sanitize_filename(name: str) -> str:
+        """Sanitize a string to be a valid filename."""
+        # Remove invalid characters
+        sanitized = re.sub(r'[\\/*?:"<>|]', "", name)
+        # Replace spaces with underscores
+        sanitized = sanitized.replace(' ', '_')
+        # Truncate to a reasonable length
+        return sanitized[:100]
+
     try:
         os.makedirs(output_dir, exist_ok=True)
         
         # Generate base filename
         if is_url(input_source):
-            # URL
-            base_name = "url_citation"
+            title = citation_info.get('title')
+            if title:
+                base_name = sanitize_filename(title)
+            else:
+                base_name = "url_citation"
         else:
-            # PDF file
+            # PDF or media file
             base_name = os.path.splitext(os.path.basename(input_source))[0]
         
         # Save as YAML
