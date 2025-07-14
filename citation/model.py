@@ -1,6 +1,7 @@
 import dspy
 import logging
 from typing import Dict, Optional
+from .llm import get_llm_model
 
 
 class CitationLLM:
@@ -8,7 +9,7 @@ class CitationLLM:
 
     def __init__(self, llm_model="ollama/qwen3"):
         """Initialize the LLM."""
-        self.llm = dspy.LM(model=llm_model, base_url="http://localhost:11434")
+        self.llm = get_llm_model(llm_model)
         dspy.settings.configure(lm=self.llm)
 
     def extract_book_citation(self, pdf_text: str) -> Dict:

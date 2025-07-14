@@ -3,6 +3,7 @@ import sys
 import os
 import logging
 from citation.main import CitationExtractor
+from citation.llm import get_provider_info
 
 def main():
     parser = argparse.ArgumentParser(
@@ -26,6 +27,14 @@ def main():
     parser.add_argument('--lang', '-l', default='eng+chi_sim', 
                        help='Language for OCR (default: eng+chi_sim)')
     
+    # LLM model option
+    provider_info = get_provider_info()
+    providers_help = "; ".join([f"{k}: {v}" for k, v in provider_info.items()])
+    parser.add_argument('--llm', default='ollama/qwen3',
+                       help=f'LLM model to use for citation extraction (default: ollama/qwen3). '
+                            f'Supported providers: {providers_help}. '
+                            f'Examples: ollama/qwen3, gemini/gemini-1.5-flash, gemini/gemini-2.0-flash-exp')
+    
     args = parser.parse_args()
     
     # Configure logging
@@ -35,8 +44,10 @@ def main():
         logging.getLogger().setLevel(logging.INFO)
     
     try:
-        # Initialize extractor
-        extractor = CitationExtractor()
+        # Initialize extractor with selected LLM model
+        if args.verbose:
+            print(f"Using LLM model: {args.llm}")
+        extractor = CitationExtractor(llm_model=args.llm)
         
         # Auto-detect input type and process
         print(f"Processing: {args.input}")

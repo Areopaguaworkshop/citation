@@ -22,16 +22,13 @@ from .utils import (
     is_pdf_file,
     is_media_file,
     determine_document_type,
+    enhance_document_type_detection,
     ensure_searchable_pdf,
     extract_pdf_text,
     determine_url_type,
-    has_required_info,
     save_citation,
     guess_title_from_filename,
     detect_page_numbers,
-    clean_url,
-    format_author_name,
-    extract_publisher_from_domain,
 )
 from .model import CitationLLM
 
@@ -39,17 +36,6 @@ from .model import CitationLLM
 logging.basicConfig(
     level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s"
 )
-
-# Try to import scholarly
-try:
-    from scholarly._scholarly import search_pubs
-
-    print(f"scholarly object: {scholarly}")
-    print(f"scholarly file: {scholarly.__file__}")
-    SCHOLARLY_AVAILABLE = True
-except ImportError:
-    SCHOLARLY_AVAILABLE = False
-    logging.warning("scholarly not available, skipping Google Scholar search")
 
 
 class CitationExtractor:
@@ -65,20 +51,36 @@ class CitationExtractor:
     ) -> Optional[Dict]:
         """Main function to extract citation from either PDF or URL."""
         try:
-            # Auto-detect input type
+            # Validate input
+            if not input_source or not input_source.strip():
+                logging.error("Input source is empty or None")
+                return None
+
+            # Auto-detect input type with improved error handling
             if is_url(input_source):
+                logging.info(f"Detected URL input: {input_source}")
                 return self.extract_from_url(input_source, output_dir)
             elif is_pdf_file(input_source):
+                logging.info(f"Detected PDF input: {input_source}")
                 return self.extract_from_pdf(
                     input_source, output_dir, doc_type_override
                 )
             elif is_media_file(input_source):
+                logging.info(f"Detected media file input: {input_source}")
                 return self.extract_from_media_file(input_source, output_dir)
             else:
-                logging.error(f"Unknown input type: {input_source}")
+                logging.error(
+                    f"Unknown or unsupported input type: {input_source}")
+                if os.path.exists(input_source):
+                    logging.error(f"File exists but is not a supported format")
+                else:
+                    logging.error(f"File does not exist: {input_source}")
                 return None
         except Exception as e:
             logging.error(f"Error in citation extraction: {e}")
+            import traceback
+
+            logging.debug(traceback.format_exc())
             return None
 
     def extract_from_pdf(
@@ -87,90 +89,98 @@ class CitationExtractor:
         output_dir: str = "citations",
         doc_type_override: Optional[str] = None,
     ) -> Optional[Dict]:
-        """Extract citation from PDF following the workflow."""
+        """Extract citation from PDF following the new LLM-focused workflow."""
         try:
             print(f"📄 Starting PDF citation extraction...")
 
-            # Step 1: Check PDF page count and determine document type
+            # Step 1: Analyze PDF for page count and filename
             print("🔍 Step 1: Analyzing PDF structure...")
             num_pages, filename = self._analyze_pdf_structure(input_pdf_path)
+            if num_pages == 0:
+                logging.error(f"Could not read PDF file: {input_pdf_path}")
+                return None
 
-            # Determine document type (with override if provided)
+            # Step 2: Ensure PDF is searchable (OCR if needed)
+            print("🔍 Step 2: Ensuring PDF is searchable...")
+            searchable_pdf_path = ensure_searchable_pdf(
+                input_pdf_path, num_pages)
+
+            # Step 3: Determine document type
+            print("🔍 Step 3: Determining document type...")
             if doc_type_override:
                 doc_type = doc_type_override
                 print(f"📋 Document type overridden to: {doc_type}")
             else:
+                # Initial determination by page count
                 doc_type = determine_document_type(num_pages)
-                print(
-                    f"📋 Document type determined by page count: {
-                        doc_type} ({num_pages} pages)"
-                )
+                print(f"📋 Initial document type: {
+                      doc_type} ({num_pages} pages)")
 
-            # Step 2: Try PyMuPDF for metadata extraction
-            print("🔍 Step 2: Extracting metadata with PyMuPDF...")
-            citation_info = self._extract_with_pymupdf(
-                input_pdf_path, filename)
+            # Step 4: Extract text for LLM
+            print("🔍 Step 4: Extracting text for LLM...")
+            pdf_text = extract_pdf_text(searchable_pdf_path, doc_type)
+            if not pdf_text:
+                logging.error("Could not extract text from PDF.")
+                return None
 
-            # Step 3: Try scholarly search if we have title
-            title_found = citation_info and citation_info.get("title")
-            if title_found:
-                print(f"✅ Title found: '{citation_info['title']}'")
-                print("🔍 Step 3: Searching Google Scholar...")
-                scholarly_info = self._search_with_scholarly(
-                    citation_info["title"])
-                if scholarly_info:
-                    citation_info.update(scholarly_info)
-            else:
-                print(
-                    "⚠️ No title found in metadata or filename, skipping Google Scholar search"
-                )
+            # Step 5: Refine document type based on content
+            print("🔍 Step 5: Refining document type with content analysis...")
+            if not doc_type_override:
+                if doc_type == "book":
+                    # Check for thesis keywords
+                    thesis_keywords = [
+                        "thesis",
+                        "dissertation",
+                        "phd",
+                        "master",
+                        "doctoral",
+                        "instructor",
+                    ]
+                    if any(
+                        keyword in pdf_text[:3000].lower()
+                        for keyword in thesis_keywords
+                    ):
+                        doc_type = "thesis"
+                        print("📋 Content analysis suggests THESIS.")
 
-            # Step 4: Check if we have enough required info
-            if not has_required_info(citation_info, doc_type):
-                print(
-                    "🔍 Step 4: Insufficient metadata found, proceeding with OCR and LLM extraction..."
-                )
-
-                # OCR if needed
-                searchable_pdf = ensure_searchable_pdf(
-                    input_pdf_path, num_pages)
-
-                # LLM extraction
-                pdf_text = extract_pdf_text(searchable_pdf, doc_type)
-                if pdf_text:
-                    print(f"🤖 Step 5: Using LLM to extract {
-                          doc_type} citation...")
-                    llm_citation = self.llm.extract_citation_from_text(
-                        pdf_text, doc_type
+                # Enhanced document type detection for journal vs book chapter
+                elif doc_type == "journal":
+                    enhanced_type = enhance_document_type_detection(
+                        searchable_pdf_path, doc_type
                     )
+                    if enhanced_type != doc_type:
+                        doc_type = enhanced_type
+                        print(f"📋 Enhanced analysis suggests {
+                              doc_type.upper()}.")
 
-                    # Add page numbers for journal and bookchapter
-                    if doc_type in ["journal", "bookchapter"] and llm_citation:
-                        first_page, last_page = (
-                            detect_page_numbers,
-                            clean_url,
-                            format_author_name,
-                            extract_publisher_from_domain(searchable_pdf),
-                        )
-                        if first_page and last_page:
-                            llm_citation["page_numbers"] = f"{
-                                first_page}-{last_page}"
-                            print(f"📄 Page numbers detected: {
-                                  first_page}-{last_page}")
-
-                    if llm_citation:
-                        citation_info.update(llm_citation)
-            else:
-                print("✅ Sufficient metadata found, skipping OCR and LLM extraction")
+            # Step 6: Use LLM to extract citation
+            print(f"🤖 Step 6: Using LLM to extract {doc_type} citation...")
+            citation_info = self.llm.extract_citation_from_text(
+                pdf_text, doc_type)
 
             if citation_info:
-                # Step 6: Save output
-                print("💾 Step 6: Saving citation files...")
+                # Post-process and augment LLM output
+                if (
+                    doc_type in ["journal", "bookchapter"]
+                    and "page_numbers" not in citation_info
+                ):
+                    first_page, last_page = detect_page_numbers(
+                        searchable_pdf_path)
+                    if first_page and last_page:
+                        citation_info["page_numbers"] = f"{
+                            first_page}-{last_page}"
+                        print(
+                            f"📄 Page numbers detected and added: {
+                                first_page}-{last_page}"
+                        )
+
+                # Step 7: Save output
+                print("💾 Step 7: Saving citation files...")
                 save_citation(citation_info, input_pdf_path, output_dir)
                 print("✅ Citation extraction completed successfully!")
                 return citation_info
             else:
-                print("❌ Failed to extract citation information")
+                print("❌ Failed to extract citation information with LLM.")
                 return None
 
         except Exception as e:
@@ -288,105 +298,6 @@ class CitationExtractor:
             logging.error(f"Error analyzing PDF structure: {e}")
             return 0, ""
 
-    def _extract_with_pymupdf(self, pdf_path: str, filename: str) -> Dict:
-        """Extract metadata using PyMuPDF."""
-        try:
-            doc = fitz.open(pdf_path)
-            metadata = doc.metadata
-            doc.close()
-
-            citation_info = {}
-
-            # Extract title from metadata
-            title = metadata.get("title", "").strip()
-            if title:
-                citation_info["title"] = title
-                print(f"📋 Title found in metadata: '{title}'")
-            else:
-                # Try to guess title from filename
-                guessed_title = guess_title_from_filename(filename)
-                if guessed_title:
-                    citation_info["title"] = guessed_title
-                    print(f"📋 Title guessed from filename: '{guessed_title}'")
-                else:
-                    print("⚠️ No title found in metadata or filename")
-
-            # Extract author from metadata
-            author = metadata.get("author", "").strip()
-            if author:
-                citation_info["author"] = author
-                print(f"👤 Author found in metadata: '{author}'")
-
-            # Extract other metadata
-            subject = metadata.get("subject", "").strip()
-            if subject:
-                citation_info["subject"] = subject
-
-            creator = metadata.get("creator", "").strip()
-            if creator and creator != author:
-                citation_info["creator"] = creator
-
-            # Extract creation date
-            creation_date = metadata.get("creationDate", "").strip()
-            if creation_date:
-                # Try to extract year from creation date
-                import re
-
-                year_match = re.search(r"(\d{4})", creation_date)
-                if year_match:
-                    citation_info["year"] = year_match.group(1)
-                    print(
-                        f"📅 Year extracted from creation date: {
-                            year_match.group(1)}"
-                    )
-
-            logging.info(f"PyMuPDF metadata: {citation_info}")
-            return citation_info
-
-        except Exception as e:
-            logging.error(f"Error with PyMuPDF: {e}")
-            return {}
-
-    def _search_with_scholarly(self, title: str) -> Dict:
-        """Search Google Scholar using scholarly library."""
-        if not SCHOLARLY_AVAILABLE:
-            print("⚠️ Scholarly library not available, skipping Google Scholar search")
-            return {}
-
-        try:
-            # Search for the publication
-            search_query = scholarly.search_pubs(title)
-            pub = next(search_query, None)
-
-            if pub:
-                # Fill in publication details
-                filled_pub = scholarly.fill(pub)
-
-                # Extract relevant information
-                info = {}
-                if "title" in filled_pub:
-                    info["title"] = filled_pub["title"]
-                if "author" in filled_pub:
-                    authors = [author["name"]
-                               for author in filled_pub["author"]]
-                    info["author"] = ", ".join(authors)
-                if "year" in filled_pub:
-                    info["year"] = str(filled_pub["year"])
-                if "venue" in filled_pub:
-                    info["journal_name"] = filled_pub["venue"]
-                if "publisher" in filled_pub:
-                    info["publisher"] = filled_pub["publisher"]
-
-                print(f"📚 Found additional info from Google Scholar")
-                logging.info(f"Scholarly info: {info}")
-                return info
-            else:
-                print("⚠️ No results found in Google Scholar")
-                return {}
-        except Exception as e:
-            logging.error(f"Error with scholarly search: {e}")
-            return {}
-
     def _extract_url_with_trafilatura(self, url: str) -> Dict:
         """Extract citation from URL using trafilatura and newspaper3k."""
         try:
@@ -475,7 +386,8 @@ class CitationExtractor:
                             )
                             print(
                                 f"👤 HTML meta author extracted: {
-                                    citation_info['author']}"
+                                    citation_info['author']
+                                }"
                             )
 
                 except Exception as e:
@@ -494,6 +406,20 @@ class CitationExtractor:
 
         except Exception as e:
             logging.error(f"Error with trafilatura: {e}")
+            return {}
+
+    def _extract_media_metadata(self, url: str) -> Dict:
+        """Extract metadata from media URLs (placeholder for future implementation)."""
+        try:
+            # For now, return basic URL info
+            # Future implementation could use youtube-dl or similar
+            return {
+                "title": "Media content from URL",
+                "author": "Unknown",
+                "publisher": extract_publisher_from_domain(url),
+            }
+        except Exception as e:
+            logging.error(f"Error extracting media metadata: {e}")
             return {}
 
 
