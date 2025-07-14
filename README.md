@@ -1,30 +1,42 @@
 # Citation Extractor
 
-A tool to extract citations from PDF files, URLs, and local media files in Chicago Author-Date style.
+A powerful tool to extract citations from PDF files, URLs, and local media files in Chicago Author-Date style using advanced LLM technology.
 
 ## Features
 
-- **Auto-detection**: Automatically detects input type (PDF, URL, video/audio file).
-- Extract citations from PDF files (books, theses, journals, book chapters).
-- Extract citations from URLs (web articles, videos, etc.).
-- Extract citations from local video and audio files.
-- Support for English and Chinese content for PDFs.
-- Output in both YAML and JSON formats.
-- Multi-step extraction workflow with fallbacks.
+- **🔍 Auto-detection**: Automatically detects input type (PDF, URL, video/audio file)
+- **📄 PDF Support**: Extract citations from books, theses, journals, and book chapters
+- **🌐 URL Support**: Extract citations from web articles and media content
+- **🎵 Media Support**: Extract citations from local video and audio files
+- **🌍 Multi-language**: Support for English and Chinese content
+- **🤖 LLM-Powered**: Uses DSPy with flexible LLM model selection (Ollama, Gemini)
+- **📊 Multiple Formats**: Output in both YAML and JSON formats
+- **🔄 Robust Workflow**: Multi-step extraction with intelligent fallbacks
+- **⚡ Fast Processing**: Efficient PyMuPDF-based PDF processing
 
 ## Installation
 
-Install dependencies using Rye:
+### Prerequisites
+- Python 3.12+
+- [Ollama](https://ollama.ai) with a compatible model (e.g., `qwen3`, `llama3`)
+- OCRmyPDF for PDF text extraction
+- MediaInfo for media file processing
+
+### Install using Rye (Recommended)
 
 ```bash
 rye sync
 ```
 
-## Usage
+### Install using pip
+
+```bash
+pip install -e .
+```
+
+## Quick Start
 
 ### Command Line Interface
-
-The CLI automatically detects input type:
 
 ```bash
 # Extract citation from a PDF file
@@ -36,15 +48,23 @@ citation https://example.com/article
 # Extract citation from a local video file
 citation path/to/video.mp4
 
-# With options
-citation input --output-dir my_citations --verbose
+# Use different LLM models
+citation --llm ollama/llama3 document.pdf
+citation --llm gemini/gemini-1.5-flash document.pdf
+
+# With all options
+citation --llm ollama/qwen3 --type book --output-dir my_citations --verbose document.pdf
 ```
 
-Options:
-- `--output-dir`, `-o`: Output directory for citation files (default: citations)
+### Available Options
+
+- `--llm`: LLM model to use (default: `ollama/qwen3`)
+  - Ollama: `ollama/qwen3`, `ollama/llama3`, `ollama/mixtral`
+  - Gemini: `gemini/gemini-1.5-flash`, `gemini/gemini-2.0-flash-exp`
+- `--output-dir`, `-o`: Output directory for citation files (default: `citations`)
 - `--verbose`, `-v`: Enable verbose logging
-- `--lang`, `-l`: Language for OCR (default: eng+chi_sim)
-- `--type`, `-t`: Manually specify document type for PDFs (book, thesis, journal, bookchapter)
+- `--lang`, `-l`: Language for OCR (default: `eng+chi_sim`)
+- `--type`, `-t`: Manually specify document type (book, thesis, journal, bookchapter)
 
 ### Python API
 
@@ -76,49 +96,187 @@ The system is organized into modular components:
 
 ## Workflow
 
-The extraction follows a multi-step process based on input type:
+The extraction follows an intelligent multi-step process based on input type:
 
-### For PDFs:
-1. **PDF Analysis**: Determine document type based on page count.
-2. **Metadata Extraction**: Use **PyMuPDF (fitz)** for fast title and metadata extraction.
-3. **Scholarly Search**: Query Google Scholar for additional information (if `scholarly` is installed).
-4. **OCR Processing**: Make PDF searchable using `ocrmypdf` if needed.
-5. **LLM Extraction**: Use DSPy with Ollama/Qwen3 for final extraction if metadata is insufficient.
-6. **Output**: Save as YAML and JSON files.
+### 📄 PDF Processing Workflow
 
-### For URLs:
-1. **URL Type Detection**: Determine if text-based or media content.
-2. **Content Extraction**: Use a multi-layered approach with `trafilatura`, `newspaper3k`, and `BeautifulSoup` for robust content extraction.
-3. **Output**: Save as YAML and JSON files.
+1. **PDF Structure Analysis**: Analyze page count and extract basic metadata
+2. **Document Type Detection**: Determine if book (>70 pages), thesis, journal, or book chapter
+3. **OCR Processing**: Make PDF searchable using OCRmyPDF if needed
+   - Books/Thesis: OCR first 10 pages + last 2 pages for efficiency
+   - Articles: OCR all pages for accuracy
+4. **Text Extraction**: Extract relevant text using PyMuPDF
+5. **LLM-Based Extraction**: Use DSPy with configurable LLM models
+   - **Books**: Focus on cover and copyright pages (first 5 pages)
+   - **Thesis**: Similar to books but detect thesis-specific terms
+   - **Journal**: Extract from first page headers/footers
+   - **Book Chapter**: Extract chapter info and parent book details
+6. **Post-processing**: Add page numbers and validate results
+7. **Output**: Save as YAML and JSON files
 
-### For Local Media (Video/Audio):
-1. **Metadata Extraction**: Use **pymediainfo** to extract technical and descriptive metadata (duration, title, author, etc.).
-2. **Title Fallback**: If no title is found in the metadata, the filename is used as the title.
-3. **Output**: Save as YAML and JSON files.
+### 🌐 URL Processing Workflow
 
-## Requirements
+1. **URL Type Detection**: Determine if text-based or media content
+2. **Multi-layered Content Extraction**: 
+   - **Primary**: Trafilatura for structured content
+   - **Fallback**: Newspaper3k for news articles
+   - **Final**: BeautifulSoup for HTML meta tags
+3. **Publisher Detection**: Extract from domain if not found
+4. **Date Processing**: Add access date and parse publication date
+5. **Output**: Save as YAML and JSON files
 
-- Python 3.12+
-- Ollama with Qwen3 model running locally
-- **PyMuPDF** (`fitz`) for PDF metadata extraction.
-- **OCRmyPDF** for PDF processing.
-- **pymediainfo** for local media file metadata extraction.
-- **trafilatura**, **newspaper3k**, **BeautifulSoup4** for URL content extraction.
-- **scholarly** (optional) for enhanced metadata from Google Scholar.
+### 🎵 Media File Processing Workflow
 
-## Testing
+1. **Metadata Extraction**: Use PyMediaInfo to extract technical metadata
+2. **Title Processing**: Use embedded title or derive from filename
+3. **Duration Formatting**: Convert to human-readable format
+4. **Author/Publisher**: Extract from metadata or mark as missing
+5. **Output**: Save as YAML and JSON files
 
-Run tests with:
-```bash
-pytest citation/tests/
+## LLM Model Support
+
+The system supports multiple LLM providers through DSPy:
+
+### Ollama (Local Models)
+- **Default**: `ollama/qwen3`
+- **Supported**: `ollama/llama3`, `ollama/mixtral`, `ollama/codellama`
+- **Requirements**: Ollama running on `localhost:11434`
+
+### Google Gemini (API Models)
+- **Supported**: `gemini/gemini-1.5-flash`, `gemini/gemini-2.0-flash-exp`
+- **Requirements**: Valid Gemini API credentials
+
+### Configuration
+```python
+# Use different models
+extractor = CitationExtractor(llm_model="ollama/llama3")
+extractor = CitationExtractor(llm_model="gemini/gemini-1.5-flash")
 ```
 
-Add your PDF examples to the `examples/` directory for testing.
+## System Requirements
 
-## Key Improvements
+### Core Dependencies
+- **Python 3.12+** (Required)
+- **PyMuPDF** (`fitz`) - PDF processing and metadata extraction
+- **OCRmyPDF** - PDF text recognition and searchability
+- **DSPy** - LLM integration framework
+- **PyMediaInfo** - Media file metadata extraction
 
-- **Auto-detection**: No need to specify flags for input type.
-- **Modular design**: Separated concerns into utils, model, and main modules.
-- **Better metadata extraction**: Uses robust libraries for each file type.
-- **Robust error handling**: Graceful fallbacks when dependencies are unavailable.
-- **Comprehensive testing**: Full test coverage for all functionality.
+### Web Scraping Dependencies
+- **Trafilatura** - Primary content extraction
+- **Newspaper3k** - News article processing
+- **BeautifulSoup4** - HTML parsing fallback
+- **Requests** - HTTP client
+
+### LLM Dependencies
+- **Ollama** (for local models) - Install from [ollama.ai](https://ollama.ai)
+- **Google AI SDK** (for Gemini models) - Configured via environment variables
+
+### System Tools
+- **Tesseract OCR** - Required by OCRmyPDF
+- **MediaInfo** - Required by PyMediaInfo
+
+## Development and Testing
+
+### Running Tests
+```bash
+# Run all tests
+pytest citation/tests/
+
+# Run with coverage
+pytest --cov=citation citation/tests/
+
+# Run specific test file
+pytest citation/tests/test_citation.py
+```
+
+### Project Structure
+```
+citation/
+├── citation/
+│   ├── __init__.py          # Package initialization
+│   ├── main.py              # Core extraction logic
+│   ├── cli.py               # Command-line interface
+│   ├── model.py             # DSPy LLM integration
+│   ├── llm.py               # LLM model configuration
+│   ├── utils.py             # Utility functions
+│   └── tests/               # Test suite
+├── citations/               # Default output directory
+├── README.md                # This file
+├── pyproject.toml           # Project configuration
+└── LLM_USAGE_EXAMPLES.md    # LLM usage examples
+```
+
+## Output Format
+
+Citations are saved in both YAML and JSON formats following Chicago Author-Date style:
+
+### PDF Book Example
+```yaml
+title: "The Great Gatsby"
+author: "Fitzgerald, F. Scott"
+publisher: "Charles Scribner's Sons"
+year: "1925"
+location: "New York"
+isbn: "978-0-7432-7356-5"
+```
+
+### URL Article Example
+```yaml
+title: "Climate Change and Its Effects"
+author: "Smith, John"
+url: "https://example.com/article"
+date_accessed: "2024-01-15"
+publisher: "Science Daily"
+date: "2024-01-10"
+```
+
+## Troubleshooting
+
+### Common Issues
+
+1. **LLM Provider Error**: Ensure Ollama is running and model is pulled
+   ```bash
+   ollama pull qwen3
+   ollama serve
+   ```
+
+2. **OCR Failures**: Install Tesseract OCR
+   ```bash
+   # Ubuntu/Debian
+   sudo apt-get install tesseract-ocr
+   
+   # macOS
+   brew install tesseract
+   ```
+
+3. **Media File Issues**: Install MediaInfo
+   ```bash
+   # Ubuntu/Debian
+   sudo apt-get install mediainfo
+   
+   # macOS
+   brew install mediainfo
+   ```
+
+### Debug Mode
+```bash
+# Enable verbose logging
+citation --verbose document.pdf
+
+# Check LLM configuration
+python -c "from citation.llm import get_provider_info; print(get_provider_info())"
+```
+
+## Contributing
+
+Contributions are welcome! Please:
+
+1. Fork the repository
+2. Create a feature branch
+3. Add tests for new functionality
+4. Submit a pull request
+
+## License
+
+This project is licensed under the MIT License - see the LICENSE file for details.
