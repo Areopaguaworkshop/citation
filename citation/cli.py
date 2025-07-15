@@ -39,8 +39,17 @@ def main():
     parser.add_argument(
         "--lang",
         "-l",
-        default="eng+chi_sim",
+        default="eng+chi_sim+chi_tra",
         help="Language for OCR (default: eng+chi_sim)",
+    )
+
+    # Page range option for OCR
+    parser.add_argument(
+        "--page-range",
+        "-p",
+        default="1-5, -3",
+        help='Page range for OCR. Examples: "1-5" (pages 1 to 5), "1,3,5" (pages 1, 3, and 5), '
+        '"-3" (last 3 pages), "1-5, -3" (pages 1 to 5 and the last 3 pages). Default: "1-5, -3"',
     )
 
     # LLM model option
@@ -71,7 +80,11 @@ def main():
         # Auto-detect input type and process
         print(f"Processing: {args.input}")
         citation_info = extractor.extract_citation(
-            args.input, args.output_dir, doc_type_override=args.type
+            args.input,
+            output_dir=args.output_dir,
+            doc_type_override=args.type,
+            lang=args.lang,
+            page_range=args.page_range,
         )
 
         if citation_info:

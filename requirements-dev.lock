@@ -238,6 +238,8 @@ pymediainfo==7.0.1
     # via citation
 pymupdf==1.26.3
     # via citation
+pypinyin==0.54.0
+    # via citation
 pytest==8.3.5
     # via pytest-cov
 pytest-cov==6.2.1

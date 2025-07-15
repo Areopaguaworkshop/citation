@@ -11,15 +11,15 @@ def test_url_extraction():
     extractor = CitationExtractor()
     citation_info = extractor.extract_citation(TEST_URL)
     assert citation_info is not None, "Failed to extract citation from URL"
-    assert 'url' in citation_info, "Missing URL in citation"
-    assert 'date_accessed' in citation_info, "Missing date_accessed in citation"
+    assert 'URL' in citation_info, "Missing URL in citation"
+    assert 'accessed' in citation_info, "Missing date_accessed in citation"
 
 def test_auto_detection_url():
     """Test auto-detection of URL input."""
     extractor = CitationExtractor()
     citation_info = extractor.extract_citation(TEST_URL)
     assert citation_info is not None, "Failed to extract citation from URL"
-    assert citation_info['url'] == TEST_URL, "URL not correctly saved"
+    assert citation_info['URL'] == TEST_URL, "URL not correctly saved"
 
 def test_auto_detection_nonexistent_file():
     """Test auto-detection with nonexistent file."""

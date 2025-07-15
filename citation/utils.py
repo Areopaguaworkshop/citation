@@ -8,6 +8,10 @@ from typing import Optional, Dict, Tuple
 import re
 
 
+import re
+from pypinyin import pinyin, Style
+
+
 def is_url(input_string: str) -> bool:
     """Check if the input string is a URL."""
     try:
@@ -174,53 +178,101 @@ def guess_title_from_filename(filename: str) -> Optional[str]:
     return None
 
 
+def parse_page_range(page_range_str: str, total_pages: int) -> Optional[str]:
+    """
+    Parse a page range string (e.g., "1-5, -3") into a comma-separated list of 1-based page numbers.
+    Returns None if the range is invalid or empty.
+    """
+    if not page_range_str:
+        return None
+
+    pages_to_process = set()
+    parts = page_range_str.split(",")
+
+    for part in parts:
+        part = part.strip()
+        if not part:
+            continue
+
+        if part.startswith("-"):
+            # Last N pages
+            try:
+                last_n = int(part)
+                if last_n > 0:
+                    logging.warning(f"Invalid last page range '{part}', should be negative. Skipping.")
+                    continue
+                start_page = max(1, total_pages + last_n + 1)
+                pages_to_process.update(range(start_page, total_pages + 1))
+            except ValueError:
+                logging.warning(f"Invalid page range format: {part}. Skipping.")
+                continue
+        elif "-" in part:
+            # A range of pages (e.g., "1-5")
+            try:
+                start, end = map(int, part.split("-"))
+                if start > end:
+                    logging.warning(f"Invalid page range {start}-{end}. Skipping.")
+                    continue
+                pages_to_process.update(range(start, min(end, total_pages) + 1))
+            except ValueError:
+                logging.warning(f"Invalid page range format: {part}. Skipping.")
+                continue
+        else:
+            # A single page
+            try:
+                page = int(part)
+                if 1 <= page <= total_pages:
+                    pages_to_process.add(page)
+            except ValueError:
+                logging.warning(f"Invalid page number: {part}. Skipping.")
+
+    if not pages_to_process:
+        return None
+
+    # Sort and convert to comma-separated string for ocrmypdf
+    return ",".join(map(str, sorted(list(pages_to_process))))
+
+
 def detect_page_numbers(pdf_path: str) -> Tuple[Optional[int], Optional[int]]:
-    """Detect first and last page numbers from PDF footer."""
+    """Detect first and last page numbers from PDF footer, with improved robustness."""
     try:
         doc = fitz.open(pdf_path)
+        if doc.page_count == 0:
+            return None, None
+
         first_page_num = None
         last_page_num = None
 
-        # Check first few pages for page number
+        # Check first few pages for the first page number
         for page_idx in range(min(3, doc.page_count)):
             page = doc[page_idx]
-
-            # Get text from bottom 20% of page (footer area)
-            rect = page.rect
-            footer_rect = fitz.Rect(
-                rect.x0, rect.y1 - rect.height * 0.2, rect.x1, rect.y1
-            )
-            footer_text = page.get_text(clip=footer_rect)
-
-            # Look for standalone numbers in footer
-            numbers = re.findall(r"\b(\d+)\b", footer_text)
-            if numbers:
-                # Take the first reasonable number found
-                for num_str in numbers:
-                    num = int(num_str)
-                    if 1 <= num <= 9999:  # Reasonable page number range
-                        if first_page_num is None:
-                            first_page_num = num - page_idx  # Deduce first page number
-                        break
-                if first_page_num is not None:
-                    break
-
-        # Check last page for page number
-        if doc.page_count > 0:
-            last_page = doc[doc.page_count - 1]
-            rect = last_page.rect
-            footer_rect = fitz.Rect(
-                rect.x0, rect.y1 - rect.height * 0.2, rect.x1, rect.y1
-            )
-            footer_text = last_page.get_text(clip=footer_rect)
-
+            footer_text = page.get_text("text", clip=fitz.Rect(page.rect.x0, page.rect.y1 - 80, page.rect.x1, page.rect.y1))
             numbers = re.findall(r"\b(\d+)\b", footer_text)
             if numbers:
                 for num_str in numbers:
                     num = int(num_str)
                     if 1 <= num <= 9999:
-                        last_page_num = num
+                        first_page_num = num - page_idx
                         break
+                if first_page_num is not None:
+                    break
+        
+        # Check last few pages for the last page number
+        for i in range(doc.page_count):
+            page_idx = doc.page_count - 1 - i
+            if page_idx < 0 or i >= 3: # Check last 3 pages at most
+                break
+            
+            page = doc[page_idx]
+            footer_text = page.get_text("text", clip=fitz.Rect(page.rect.x0, page.rect.y1 - 80, page.rect.x1, page.rect.y1))
+            numbers = re.findall(r"\b(\d+)\b", footer_text)
+            
+            if numbers:
+                # Find the most likely candidate (often the largest number in the footer)
+                candidate_nums = [int(n) for n in numbers if 1 <= int(n) <= 9999]
+                if candidate_nums:
+                    last_page_num = max(candidate_nums)
+                    break
 
         doc.close()
         return first_page_num, last_page_num
@@ -230,52 +282,56 @@ def detect_page_numbers(pdf_path: str) -> Tuple[Optional[int], Optional[int]]:
         return None, None
 
 
-def ensure_searchable_pdf(pdf_path: str, num_pages: int) -> str:
-    """Ensure PDF is searchable using OCR if needed."""
+def ensure_searchable_pdf(
+    pdf_path: str, num_pages: int, lang: str = "eng+chi_sim", page_range: str = "1-5, -3"
+) -> str:
+    """Ensure PDF is searchable using OCR if needed, processing only the specified page range."""
     try:
-        # Check if PDF is already searchable
+        # Check if PDF is already searchable by checking the first page in the range
         doc = fitz.open(pdf_path)
-        first_page = doc[0]
+        
+        # Determine pages to check for text
+        check_pages_str = parse_page_range(page_range, num_pages)
+        if not check_pages_str:
+            logging.warning("Page range resulted in no pages to process. Using original PDF.")
+            return pdf_path
+            
+        first_page_to_check = int(check_pages_str.split(',')[0]) - 1 # 0-indexed
+        
+        first_page = doc[first_page_to_check]
         text = first_page.get_text()
         doc.close()
 
         if text.strip():
-            logging.info("PDF is already searchable")
+            logging.info("PDF appears to be searchable.")
             return pdf_path
 
         # OCR the PDF
-        logging.info("PDF is not searchable, running OCR...")
+        logging.info(f"PDF is not searchable, running OCR with lang='{lang}' on page range='{page_range}'...")
 
-        output_dir = os.path.dirname(pdf_path)
-        if not output_dir:
-            output_dir = "."
-        ocr_output = os.path.join(
-            output_dir, f"ocr_{os.path.basename(pdf_path)}")
+        output_dir = os.path.dirname(pdf_path) or "."
+        ocr_output = os.path.join(output_dir, f"ocr_{os.path.basename(pdf_path)}")
 
-        # Determine OCR pages based on document type
-        if num_pages < 70:
-            # OCR all pages for short documents
-            ocr_pages = None
-        else:
-            # OCR first 10 and last 2 pages for long documents
-            if num_pages <= 12:
-                ocr_pages = None # OCR all pages if it's this short
-            else:
-                ocr_pages = f"1-10,{num_pages-1}-{num_pages}"
+        # Use the parsed page range for OCR
+        ocr_pages = parse_page_range(page_range, num_pages)
+        
+        if not ocr_pages:
+            logging.error("Cannot perform OCR: The specified page range is empty or invalid.")
+            return pdf_path
 
-        cmd = ["ocrmypdf", "--deskew", "--force-ocr", "-l", "eng+chi_sim"]
-        if ocr_pages:
-            cmd.extend(["--pages", ocr_pages])
-        cmd.extend([pdf_path, ocr_output])
+        cmd = ["ocrmypdf", "--deskew", "--force-ocr", "-l", lang, "--pages", ocr_pages, pdf_path, ocr_output]
 
-        result = subprocess.run(
-            cmd, capture_output=True, text=True, timeout=300)
+        logging.info(f"Running command: {' '.join(cmd)}")
+        process = subprocess.run(cmd, capture_output=True, text=True, encoding="utf-8", errors="replace")
 
-        if result.returncode == 0:
+        if process.returncode == 0:
             logging.info(f"OCR completed successfully: {ocr_output}")
+            print(process.stdout)
             return ocr_output
         else:
-            logging.error(f"OCR failed: {result.stderr}")
+            logging.error(f"OCR failed with return code {process.returncode}.")
+            logging.error(f"Stderr: {process.stderr}")
+            print(process.stderr)
             return pdf_path
 
     except Exception as e:
@@ -283,30 +339,26 @@ def ensure_searchable_pdf(pdf_path: str, num_pages: int) -> str:
         return pdf_path
 
 
-def extract_pdf_text(pdf_path: str, doc_type: str) -> str:
-    """Extract text from PDF based on document type."""
+def extract_pdf_text(pdf_path: str, doc_type: str, page_range: str = "1-5, -3") -> str:
+    """Extract text from specified page range in a PDF."""
     try:
         doc = fitz.open(pdf_path)
         text = ""
-
-        if doc_type in ["book", "thesis"]:
-            # For books/thesis, extract first 10 and last 2 pages
-            pages_to_extract = list(range(min(10, doc.page_count)))
+        
+        total_pages = doc.page_count
+        pages_str = parse_page_range(page_range, total_pages)
+        
+        if not pages_str:
+            logging.warning("Could not parse page range, extracting no text.")
+            return ""
             
-            if doc.page_count > 12:
-                pages_to_extract.extend(range(doc.page_count - 2, doc.page_count))
-            
-            # Remove duplicates and sort
-            pages_to_extract = sorted(list(set(pages_to_extract)))
+        pages_to_extract = [int(p) - 1 for p in pages_str.split(',')]
 
-            for i in pages_to_extract:
+        for i in pages_to_extract:
+            if 0 <= i < total_pages:
                 page = doc[i]
                 text += page.get_text() + "\n"
-        else:  # journal or bookchapter
-            # Extract all pages
-            for page in doc:
-                text += page.get_text() + "\n"
-
+        
         doc.close()
         return text
 
@@ -316,6 +368,7 @@ def extract_pdf_text(pdf_path: str, doc_type: str) -> str:
 
 
 def determine_url_type(url: str) -> str:
+
     """Determine URL type."""
     try:
         response = requests.head(url, timeout=10)
@@ -330,46 +383,22 @@ def determine_url_type(url: str) -> str:
         return "text"
 
 
-def save_citation(citation_info: Dict, input_source: str, output_dir: str):
-    """Save citation information as YAML and JSON."""
-    import yaml
+def save_citation(csl_data: Dict, output_dir: str):
+    """Save citation information as a CSL JSON file."""
     import json
-
-    def sanitize_filename(name: str) -> str:
-        """Sanitize a string to be a valid filename."""
-        # Remove invalid characters
-        sanitized = re.sub(r'[\\/*?:"<>|]', "", name)
-        # Replace spaces with underscores
-        sanitized = sanitized.replace(" ", "_")
-        # Truncate to a reasonable length
-        return sanitized[:100]
 
     try:
         os.makedirs(output_dir, exist_ok=True)
 
-        # Generate base filename
-        if is_url(input_source):
-            title = citation_info.get("title")
-            if title:
-                base_name = sanitize_filename(title)
-            else:
-                base_name = "url_citation"
-        else:
-            # PDF or media file
-            base_name = os.path.splitext(os.path.basename(input_source))[0]
-
-        # Save as YAML
-        yaml_path = os.path.join(output_dir, f"{base_name}.yaml")
-        with open(yaml_path, "w", encoding="utf-8") as f:
-            yaml.dump(citation_info, f, default_flow_style=False,
-                      allow_unicode=True)
+        # Generate base filename from the CSL ID
+        base_name = csl_data.get("id", "citation")
 
         # Save as JSON
         json_path = os.path.join(output_dir, f"{base_name}.json")
         with open(json_path, "w", encoding="utf-8") as f:
-            json.dump(citation_info, f, indent=2, ensure_ascii=False)
+            json.dump(csl_data, f, indent=2, ensure_ascii=False)
 
-        logging.info(f"Citation saved to: {yaml_path} and {json_path}")
+        logging.info(f"CSL JSON citation saved to: {json_path}")
 
     except Exception as e:
         logging.error(f"Error saving citation: {e}")
@@ -431,44 +460,123 @@ def clean_url(url: str) -> str:
         return url
 
 
-def format_author_name(author_name: str) -> str:
-    """Format author name to surname-first format."""
+def format_author_csl(author_name: str) -> list:
+    """Formats an author string into a CSL-JSON compliant list of objects."""
+    from pypinyin import pinyin, Style
+
     if not author_name or not author_name.strip():
-        return author_name
+        return []
 
-    # Handle multiple authors separated by commas
-    if "," in author_name and not author_name.count(",") == 1:
-        # Multiple authors like "John Smith, Jane Doe"
-        authors = [name.strip() for name in author_name.split(",")]
-        formatted_authors = []
+    authors = []
+    # Regex to check for Chinese characters
+    is_chinese = lambda s: re.search(r'[\u4e00-\u9fff]', s)
 
-        for author in authors:
-            if author:
-                formatted_authors.append(format_single_author(author))
+    for name_part in author_name.split(','):
+        name = name_part.strip()
+        if not name:
+            continue
 
-        return ", ".join(formatted_authors)
-    else:
-        return format_single_author(author_name)
+        if is_chinese(name):
+            literal_name = name
+            # Chinese name parsing logic
+            if len(name) in [2, 3]:
+                family = name[0]
+                given = name[1:]
+            elif len(name) == 4:
+                family = name[:2]
+                given = name[2:]
+            else: # Fallback for other lengths
+                family = name[0]
+                given = name[1:]
+            
+            # Convert to Pinyin
+            family_pinyin = "".join(item[0] for item in pinyin(family, style=Style.NORMAL)).title()
+            given_pinyin = "".join(item[0] for item in pinyin(given, style=Style.NORMAL)).title()
+            
+            authors.append({"family": family_pinyin, "given": given_pinyin, "literal": literal_name})
+        else:
+            # Western name parsing logic
+            parts = name.split()
+            if len(parts) >= 2:
+                family = parts[-1]
+                given = " ".join(parts[:-1])
+                authors.append({"family": family, "given": given})
+            else:
+                authors.append({"literal": name}) # Treat as a single literal name if structure is unclear
+    
+    return authors
 
 
-def format_single_author(author_name: str) -> str:
-    """Format a single author name to surname-first format."""
-    author_name = author_name.strip()
+def to_csl_json(data: Dict, doc_type: str) -> Dict:
+    """Converts the internal dictionary to a CSL-JSON compliant dictionary."""
+    csl = {}
 
-    # If already in surname-first format (contains comma), return as is
-    if "," in author_name:
-        return author_name
+    # 1. Map Type
+    type_mapping = {
+        "book": "book",
+        "thesis": "thesis",
+        "journal": "article-journal",
+        "bookchapter": "chapter",
+        "url": "webpage",
+        "media": "motion_picture", # Default for media, can be refined
+        "video": "motion_picture",
+        "audio": "song",
+    }
+    csl["type"] = type_mapping.get(doc_type, "document") # Fallback to 'document'
 
-    # Split by spaces and try to identify surname (usually last word)
-    parts = author_name.split()
-    if len(parts) >= 2:
-        # Assume last part is surname, rest are forename(s)
-        surname = parts[-1]
-        forenames = " ".join(parts[:-1])
-        return f"{surname}, {forenames}"
-    else:
-        # Single name or can't determine, return as is
-        return author_name
+    # 2. Format Authors and Editors
+    if "author" in data:
+        csl["author"] = format_author_csl(data["author"])
+    if "editor" in data:
+        csl["editor"] = format_author_csl(data["editor"])
+
+    # 3. Format Dates
+    if "year" in data:
+        try:
+            # Attempt to parse a full date if available, otherwise just use year
+            date_parts = [int(p) for p in str(data.get("date", data["year"])).split('-')]
+            csl["issued"] = {"date-parts": [date_parts]}
+        except:
+            csl["issued"] = {"date-parts": [[int(data["year"])]]}
+            
+    if "date_accessed" in data:
+        try:
+            date_parts = [int(p) for p in data["date_accessed"].split('-')]
+            csl["accessed"] = {"date-parts": [date_parts]}
+        except:
+            pass # Don't add if format is wrong
+
+    # 4. Map Fields
+    field_mapping = {
+        "title": "title",
+        "publisher": "publisher",
+        "city": "publisher-place",
+        "journal": "container-title",
+        "volume": "volume",
+        "issue": "issue",
+        "pages": "page",
+        "url": "URL",
+        "doi": "DOI",
+        "isbn": "ISBN",
+    }
+    for old_key, new_key in field_mapping.items():
+        if old_key in data:
+            csl[new_key] = data[old_key]
+
+    # 5. Generate ID
+    id_parts = []
+    if csl.get("author"):
+        id_parts.append(csl["author"][0].get("family", "").lower())
+    if csl.get("issued"):
+        id_parts.append(str(csl["issued"]["date-parts"][0][0]))
+    if csl.get("title"):
+        id_parts.append(csl["title"].split()[0].lower())
+    
+    csl["id"] = "-".join(p for p in id_parts if p)
+    if not csl["id"]:
+        csl["id"] = "citation-" + os.urandom(4).hex() # Fallback ID
+
+    return csl
 
 
 def extract_publisher_from_domain(url: str) -> Optional[str]:

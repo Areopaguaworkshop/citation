@@ -16,6 +16,7 @@ dependencies = [
     "newspaper3k>=0.2.8",
     "pymediainfo>=7.0.1",
     "dspy-ai>=2.6.27",
+    "pypinyin>=0.51.0",
 ]
 readme = "README.md"
 requires-python = ">= 3.12"

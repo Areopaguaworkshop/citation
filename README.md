@@ -1,282 +1,170 @@
 # Citation Extractor
 
-A powerful tool to extract citations from PDF files, URLs, and local media files in Chicago Author-Date style using advanced LLM technology.
+A powerful, LLM-driven tool to automatically extract citation information from PDFs, web pages, and local media files. It generates structured citation data in JSON and YAML formats, following the Chicago Author-Date style.
 
 ## Features
 
-- **🔍 Auto-detection**: Automatically detects input type (PDF, URL, video/audio file)
-- **📄 PDF Support**: Extract citations from books, theses, journals, and book chapters
-- **🌐 URL Support**: Extract citations from web articles and media content
-- **🎵 Media Support**: Extract citations from local video and audio files
-- **🌍 Multi-language**: Support for English and Chinese content
-- **🤖 LLM-Powered**: Uses DSPy with flexible LLM model selection (Ollama, Gemini)
-- **📊 Multiple Formats**: Output in both YAML and JSON formats
-- **🔄 Robust Workflow**: Multi-step extraction with intelligent fallbacks
-- **⚡ Fast Processing**: Efficient PyMuPDF-based PDF processing
+-   **Multi-Format Support**: Extracts data from PDF documents, web URLs, and local video/audio files.
+-   **Intelligent PDF Processing**:
+    -   Automatically determines document type (book, thesis, journal article, book chapter).
+    -   Uses OCRmyPDF to make non-searchable PDFs readable.
+    -   Optimized text extraction for different document types.
+-   **Advanced Web Scraping**:
+    -   Uses a multi-layered approach (Trafilatura, Newspaper3k, BeautifulSoup) for robust content extraction from URLs.
+-   **LLM-Powered Extraction**:
+    -   Leverages Large Language Models via DSPy for accurate metadata extraction from text.
+    -   Supports multiple LLM backends, including local models with Ollama and cloud APIs like Google Gemini.
+-   **User-Friendly**:
+    -   Simple command-line interface (CLI).
+    -   Verbose mode for detailed logging and debugging.
+    -   Python API for integration into other projects.
+
+## How It Works
+
+The tool automatically detects the input type and applies a specialized workflow:
+
+1.  **PDFs**: The PDF is analyzed, and if necessary, OCR is applied. Relevant text is extracted and passed to an LLM, which identifies and extracts citation metadata (title, author, year, etc.) based on the detected document type.
+2.  **URLs**: The content of the URL is fetched, and a series of extraction tools are used to pull out metadata. The publisher is inferred from the domain if not explicitly found.
+3.  **Media Files**: For local audio or video files, `pymediainfo` is used to extract embedded metadata like title, author, and duration.
+
+The extracted information is then normalized and saved into `.json` and `.yaml` files.
 
 ## Installation
 
 ### Prerequisites
-- Python 3.12+
-- [Ollama](https://ollama.ai) with a compatible model (e.g., `qwen3`, `llama3`)
-- OCRmyPDF for PDF text extraction
-- MediaInfo for media file processing
 
-### Install using Rye (Recommended)
+This tool relies on several external dependencies that must be installed on your system:
+
+-   **Python 3.12+**
+-   **Tesseract OCR**: Required by `OCRmyPDF`.
+-   **MediaInfo**: Required by `pymediainfo` for media file analysis.
+-   **Ollama** (Optional): For running local LLMs.
+
+You can install these on macOS using [Homebrew](https://brew.sh/):
+
+```bash
+brew install tesseract mediainfo ollama
+```
+
+Or on Debian/Ubuntu:
+
+```bash
+sudo apt-get update
+sudo apt-get install -y tesseract-ocr mediainfo
+# Follow instructions on ollama.ai to install Ollama
+```
+
+### Application Installation
+
+It is recommended to use [Rye](https://rye-up.com/) for managing Python projects and dependencies.
 
 ```bash
 rye sync
 ```
 
-### Install using pip
+This will create a virtual environment and install all necessary Python packages.
+
+## Usage
+
+### Command-Line Interface
+
+The `citation` command is the primary way to use the tool.
+
+**Basic Usage:**
 
 ```bash
-pip install -e .
+# Extract from a PDF
+citation /path/to/your/document.pdf
+
+# Extract from a URL
+citation "https://www.example.com/article"
+
+# Extract from a local video file
+citation /path/to/your/video.mp4
 ```
 
-## Quick Start
+**Specifying an LLM:**
 
-### Command Line Interface
+You can specify which LLM to use with the `--llm` flag.
 
 ```bash
-# Extract citation from a PDF file
-citation path/to/document.pdf
+# Use a local Llama3 model via Ollama
+citation --llm ollama/llama3 /path/to/document.pdf
 
-# Extract citation from a URL
-citation https://example.com/article
-
-# Extract citation from a local video file
-citation path/to/video.mp4
-
-# Use different LLM models
-citation --llm ollama/llama3 document.pdf
-citation --llm gemini/gemini-1.5-flash document.pdf
-
-# With all options
-citation --llm ollama/qwen3 --type book --output-dir my_citations --verbose document.pdf
+# Use Google Gemini
+export GOOGLE_API_KEY="YOUR_API_KEY"
+citation --llm gemini/gemini-1.5-flash /path/to/document.pdf
 ```
 
-### Available Options
+**Other Options:**
 
-- `--llm`: LLM model to use (default: `ollama/qwen3`)
-  - Ollama: `ollama/qwen3`, `ollama/llama3`, `ollama/mixtral`
-  - Gemini: `gemini/gemini-1.5-flash`, `gemini/gemini-2.0-flash-exp`
-- `--output-dir`, `-o`: Output directory for citation files (default: `citations`)
-- `--verbose`, `-v`: Enable verbose logging
-- `--lang`, `-l`: Language for OCR (default: `eng+chi_sim`)
-- `--type`, `-t`: Manually specify document type (book, thesis, journal, bookchapter)
+-   `-o, --output-dir`: Specify a directory to save citation files (default: `example/`).
+-   `-t, --type`: Manually override the document type for PDFs (`book`, `thesis`, `journal`, `bookchapter`).
+-   `-v, --verbose`: Enable detailed logging.
 
 ### Python API
 
+You can also use the `CitationExtractor` class in your own Python scripts.
+
 ```python
-from citation import CitationExtractor
+from citation.main import CitationExtractor
 
-extractor = CitationExtractor()
+# Initialize the extractor (can specify an LLM model)
+extractor = CitationExtractor(llm_model="ollama/qwen3")
 
-# Auto-detect input type
-citation_info = extractor.extract_citation("document.pdf")
-citation_info = extractor.extract_citation("https://example.com/article")
-citation_info = extractor.extract_citation("my_video.mp4")
+# Extract from a PDF
+pdf_citation = extractor.extract_from_pdf("path/to/document.pdf")
+print(pdf_citation)
 
-# Or use specific methods
-citation_info = extractor.extract_from_pdf("document.pdf")
-citation_info = extractor.extract_from_url("https://example.com/article")
-citation_info = extractor.extract_from_media_file("my_audio.mp3")
-```
+# Extract from a URL
+url_citation = extractor.extract_from_url("https://example.com/article")
+print(url_citation)
 
-## Architecture
-
-The system is organized into modular components:
-
-- **`main.py`**: Core extraction logic and workflow orchestration.
-- **`cli.py`**: Command-line interface with auto-detection.
-- **`model.py`**: DSPy-based LLM integration for citation extraction from PDFs.
-- **`utils.py`**: Common utility functions for file/URL handling and type detection.
-- **`tests/`**: Comprehensive test suite.
-
-## Workflow
-
-The extraction follows an intelligent multi-step process based on input type:
-
-### 📄 PDF Processing Workflow
-
-1. **PDF Structure Analysis**: Analyze page count and extract basic metadata
-2. **Document Type Detection**: Determine if book (>70 pages), thesis, journal, or book chapter
-3. **OCR Processing**: Make PDF searchable using OCRmyPDF if needed
-   - Books/Thesis: OCR first 10 pages + last 2 pages for efficiency
-   - Articles: OCR all pages for accuracy
-4. **Text Extraction**: Extract relevant text using PyMuPDF
-5. **LLM-Based Extraction**: Use DSPy with configurable LLM models
-   - **Books**: Focus on cover and copyright pages (first 5 pages)
-   - **Thesis**: Similar to books but detect thesis-specific terms
-   - **Journal**: Extract from first page headers/footers
-   - **Book Chapter**: Extract chapter info and parent book details
-6. **Post-processing**: Add page numbers and validate results
-7. **Output**: Save as YAML and JSON files
-
-### 🌐 URL Processing Workflow
-
-1. **URL Type Detection**: Determine if text-based or media content
-2. **Multi-layered Content Extraction**: 
-   - **Primary**: Trafilatura for structured content
-   - **Fallback**: Newspaper3k for news articles
-   - **Final**: BeautifulSoup for HTML meta tags
-3. **Publisher Detection**: Extract from domain if not found
-4. **Date Processing**: Add access date and parse publication date
-5. **Output**: Save as YAML and JSON files
-
-### 🎵 Media File Processing Workflow
-
-1. **Metadata Extraction**: Use PyMediaInfo to extract technical metadata
-2. **Title Processing**: Use embedded title or derive from filename
-3. **Duration Formatting**: Convert to human-readable format
-4. **Author/Publisher**: Extract from metadata or mark as missing
-5. **Output**: Save as YAML and JSON files
-
-## LLM Model Support
-
-The system supports multiple LLM providers through DSPy:
-
-### Ollama (Local Models)
-- **Default**: `ollama/qwen3`
-- **Supported**: `ollama/llama3`, `ollama/mixtral`, `ollama/codellama`
-- **Requirements**: Ollama running on `localhost:11434`
-
-### Google Gemini (API Models)
-- **Supported**: `gemini/gemini-1.5-flash`, `gemini/gemini-2.0-flash-exp`
-- **Requirements**: Valid Gemini API credentials
-
-### Configuration
-```python
-# Use different models
-extractor = CitationExtractor(llm_model="ollama/llama3")
-extractor = CitationExtractor(llm_model="gemini/gemini-1.5-flash")
-```
-
-## System Requirements
-
-### Core Dependencies
-- **Python 3.12+** (Required)
-- **PyMuPDF** (`fitz`) - PDF processing and metadata extraction
-- **OCRmyPDF** - PDF text recognition and searchability
-- **DSPy** - LLM integration framework
-- **PyMediaInfo** - Media file metadata extraction
-
-### Web Scraping Dependencies
-- **Trafilatura** - Primary content extraction
-- **Newspaper3k** - News article processing
-- **BeautifulSoup4** - HTML parsing fallback
-- **Requests** - HTTP client
-
-### LLM Dependencies
-- **Ollama** (for local models) - Install from [ollama.ai](https://ollama.ai)
-- **Google AI SDK** (for Gemini models) - Configured via environment variables
-
-### System Tools
-- **Tesseract OCR** - Required by OCRmyPDF
-- **MediaInfo** - Required by PyMediaInfo
-
-## Development and Testing
-
-### Running Tests
-```bash
-# Run all tests
-pytest citation/tests/
-
-# Run with coverage
-pytest --cov=citation citation/tests/
-
-# Run specific test file
-pytest citation/tests/test_citation.py
-```
-
-### Project Structure
-```
-citation/
-├── citation/
-│   ├── __init__.py          # Package initialization
-│   ├── main.py              # Core extraction logic
-│   ├── cli.py               # Command-line interface
-│   ├── model.py             # DSPy LLM integration
-│   ├── llm.py               # LLM model configuration
-│   ├── utils.py             # Utility functions
-│   └── tests/               # Test suite
-├── citations/               # Default output directory
-├── README.md                # This file
-├── pyproject.toml           # Project configuration
-└── LLM_USAGE_EXAMPLES.md    # LLM usage examples
+# Extract from a media file
+media_citation = extractor.extract_from_media_file("path/to/video.mp4")
+print(media_citation)
 ```
 
 ## Output Format
 
-Citations are saved in both YAML and JSON formats following Chicago Author-Date style:
+For each input, the tool generates a `.json` and a `.yaml` file containing the extracted citation data. The output is structured to be compatible with CSL-JSON format.
 
-### PDF Book Example
+**Example (`.yaml`):**
+
 ```yaml
-title: "The Great Gatsby"
-author: "Fitzgerald, F. Scott"
-publisher: "Charles Scribner's Sons"
-year: "1925"
-location: "New York"
-isbn: "978-0-7432-7356-5"
+URL: https://www.example.com
+accessed:
+  date-parts:
+  - - 2025
+    - 7
+    - 15
+id: example
+publisher: Example
+title: Example Domain
+type: webpage
 ```
 
-### URL Article Example
-```yaml
-title: "Climate Change and Its Effects"
-author: "Smith, John"
-url: "https://example.com/article"
-date_accessed: "2024-01-15"
-publisher: "Science Daily"
-date: "2024-01-10"
+## Project Structure
+
 ```
-
-## Troubleshooting
-
-### Common Issues
-
-1. **LLM Provider Error**: Ensure Ollama is running and model is pulled
-   ```bash
-   ollama pull qwen3
-   ollama serve
-   ```
-
-2. **OCR Failures**: Install Tesseract OCR
-   ```bash
-   # Ubuntu/Debian
-   sudo apt-get install tesseract-ocr
-   
-   # macOS
-   brew install tesseract
-   ```
-
-3. **Media File Issues**: Install MediaInfo
-   ```bash
-   # Ubuntu/Debian
-   sudo apt-get install mediainfo
-   
-   # macOS
-   brew install mediainfo
-   ```
-
-### Debug Mode
-```bash
-# Enable verbose logging
-citation --verbose document.pdf
-
-# Check LLM configuration
-python -c "from citation.llm import get_provider_info; print(get_provider_info())"
+.
+├── citation/
+│   ├── __init__.py
+│   ├── cli.py          # Command-line interface logic
+│   ├── llm.py          # LLM provider configuration
+│   ├── main.py         # Core extraction workflow
+│   ├── model.py        # DSPy signatures for LLM extraction
+│   ├── utils.py        # Helper functions
+│   └── tests/          # Pytest tests
+├── example/            # Example output files
+├── pyproject.toml      # Project definition and dependencies
+└── README.md           # This file
 ```
 
 ## Contributing
 
-Contributions are welcome! Please:
-
-1. Fork the repository
-2. Create a feature branch
-3. Add tests for new functionality
-4. Submit a pull request
+Contributions are welcome! Please feel free to submit a pull request.
 
 ## License
 
-This project is licensed under the MIT License - see the LICENSE file for details.
+This project is licensed under the MIT License.

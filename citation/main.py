@@ -16,7 +16,6 @@ from pymediainfo import MediaInfo
 
 from .utils import (
     clean_url,
-    format_author_name,
     extract_publisher_from_domain,
     is_url,
     is_pdf_file,
@@ -29,6 +28,7 @@ from .utils import (
     save_citation,
     guess_title_from_filename,
     detect_page_numbers,
+    to_csl_json,
 )
 from .model import CitationLLM
 
@@ -48,6 +48,8 @@ class CitationExtractor:
         input_source: str,
         output_dir: str = "example",
         doc_type_override: Optional[str] = None,
+        lang: str = "eng+chi_sim",
+        page_range: str = "1-5, -3",
     ) -> Optional[Dict]:
         """Main function to extract citation from either PDF or URL."""
         try:
@@ -63,7 +65,7 @@ class CitationExtractor:
             elif is_pdf_file(input_source):
                 logging.info(f"Detected PDF input: {input_source}")
                 return self.extract_from_pdf(
-                    input_source, output_dir, doc_type_override
+                    input_source, output_dir, doc_type_override, lang, page_range
                 )
             elif is_media_file(input_source):
                 logging.info(f"Detected media file input: {input_source}")
@@ -87,6 +89,8 @@ class CitationExtractor:
         input_pdf_path: str,
         output_dir: str = "example",
         doc_type_override: Optional[str] = None,
+        lang: str = "eng+chi_sim",
+        page_range: str = "1-5, -3",
     ) -> Optional[Dict]:
         """Extract citation from PDF following the new LLM-focused workflow."""
         try:
@@ -99,12 +103,8 @@ class CitationExtractor:
                 logging.error(f"Could not read PDF file: {input_pdf_path}")
                 return None
 
-            # Step 2: Ensure PDF is searchable (OCR if needed)
-            print("🔍 Step 2: Ensuring PDF is searchable...")
-            searchable_pdf_path = ensure_searchable_pdf(input_pdf_path, num_pages)
-
-            # Step 3: Determine document type
-            print("🔍 Step 3: Determining document type...")
+            # Step 2: Determine document type
+            print("🔍 Step 2: Determining document type...")
             if doc_type_override:
                 doc_type = doc_type_override
                 print(f"📋 Document type overridden to: {doc_type}")
@@ -113,9 +113,15 @@ class CitationExtractor:
                 doc_type = determine_document_type(num_pages)
                 print(f"📋 Initial document type: {doc_type} ({num_pages} pages)")
 
+            # Step 3: Ensure PDF is searchable (OCR if needed)
+            print("🔍 Step 3: Ensuring PDF is searchable...")
+            searchable_pdf_path = ensure_searchable_pdf(
+                input_pdf_path, num_pages, lang, page_range
+            )
+
             # Step 4: Extract text for LLM
             print("🔍 Step 4: Extracting text for LLM...")
-            pdf_text = extract_pdf_text(searchable_pdf_path, doc_type)
+            pdf_text = extract_pdf_text(searchable_pdf_path, doc_type, page_range)
             if not pdf_text:
                 logging.error("Could not extract text from PDF.")
                 return None
@@ -168,11 +174,12 @@ class CitationExtractor:
                             }"
                         )
 
-                # Step 7: Save output
-                print("💾 Step 7: Saving citation files...")
-                save_citation(citation_info, input_pdf_path, output_dir)
+                # Step 7: Convert to CSL JSON and save
+                print("💾 Step 7: Converting to CSL JSON and saving...")
+                csl_data = to_csl_json(citation_info, doc_type)
+                save_citation(csl_data, output_dir)
                 print("✅ Citation extraction completed successfully!")
-                return citation_info
+                return csl_data
             else:
                 print("❌ Failed to extract citation information with LLM.")
                 return None
@@ -227,10 +234,14 @@ class CitationExtractor:
                 seconds = duration_s % 60
                 citation_info["duration"] = f"{minutes} min., {seconds} sec."
 
+            # Determine media type for CSL
+            media_type = "audio" if general_track.track_type == "Audio" else "video"
+
             # Save citation
-            save_citation(citation_info, input_media_path, output_dir)
+            csl_data = to_csl_json(citation_info, media_type)
+            save_citation(csl_data, output_dir)
             print("✅ Media citation extraction completed successfully!")
-            return citation_info
+            return csl_data
 
         except Exception as e:
             logging.error(f"Error extracting citation from media file: {e}")
@@ -258,10 +269,19 @@ class CitationExtractor:
             if citation_info:
                 citation_info["url"] = url
                 citation_info["date_accessed"] = datetime.now().strftime("%Y-%m-%d")
-                print("💾 Step 3: Saving citation files...")
-                save_citation(citation_info, url, output_dir)
+                
+                # Determine CSL type based on content
+                csl_type = "webpage"
+                if url_type == "media":
+                    # A more robust check could be added here if needed
+                    csl_type = "motion_picture" 
+
+                print("💾 Step 3: Converting to CSL JSON and saving...")
+                csl_data = to_csl_json(citation_info, csl_type)
+                save_citation(csl_data, output_dir)
+                
                 print("✅ URL citation extraction completed successfully!")
-                return citation_info
+                return csl_data
             else:
                 print("❌ Failed to extract citation from URL")
                 return None
@@ -305,7 +325,7 @@ class CitationExtractor:
                     if metadata.title:
                         citation_info["title"] = metadata.title
                     if metadata.author:
-                        citation_info["author"] = format_author_name(metadata.author)
+                        citation_info["author"] = metadata.author
                     if metadata.date:
                         citation_info["date"] = metadata.date
                     if metadata.sitename:
@@ -330,7 +350,7 @@ class CitationExtractor:
 
                     if not citation_info.get("author") and article.authors:
                         authors_str = ", ".join(article.authors)
-                        citation_info["author"] = format_author_name(authors_str)
+                        citation_info["author"] = authors_str
                         print(f"👥 Newspaper3k extracted authors: {article.authors}")
 
                     if not citation_info.get("date") and article.publish_date:
@@ -361,9 +381,7 @@ class CitationExtractor:
                     if not citation_info.get("author"):
                         author_meta = soup.find("meta", attrs={"name": "author"})
                         if author_meta and author_meta.get("content"):
-                            citation_info["author"] = format_author_name(
-                                author_meta.get("content")
-                            )
+                            citation_info["author"] = author_meta.get("content")
                             print(
                                 f"👤 HTML meta author extracted: {
                                     citation_info['author']
