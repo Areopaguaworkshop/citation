@@ -17,6 +17,7 @@ dependencies = [
     "pymediainfo>=7.0.1",
     "dspy-ai>=2.6.27",
     "pypinyin>=0.51.0",
+    "citeproc-py>=0.7.0",
 ]
 readme = "README.md"
 requires-python = ">= 3.12"

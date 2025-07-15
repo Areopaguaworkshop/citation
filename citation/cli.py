@@ -4,11 +4,12 @@ import os
 import logging
 from citation.main import CitationExtractor
 from citation.llm import get_provider_info
+from citation.citation_style import format_bibliography
 
 
 def main():
     parser = argparse.ArgumentParser(
-        description="Extract citations from PDF files and URLs in Chicago Author-Date style."
+        description="Extract citations from PDF files and URLs."
     )
 
     # Input (auto-detected)
@@ -40,7 +41,7 @@ def main():
         "--lang",
         "-l",
         default="eng+chi_sim+chi_tra",
-        help="Language for OCR (default: eng+chi_sim)",
+        help="Language for OCR (default: eng+chi_sim+chi_tra)",
     )
 
     # Page range option for OCR
@@ -48,8 +49,7 @@ def main():
         "--page-range",
         "-p",
         default="1-5, -3",
-        help='Page range for OCR. Examples: "1-5" (pages 1 to 5), "1,3,5" (pages 1, 3, and 5), '
-        '"-3" (last 3 pages), "1-5, -3" (pages 1 to 5 and the last 3 pages). Default: "1-5, -3"',
+        help='Page range for OCR. Examples: "1-5", "1,3,5", "-3", "1-5, -3". Default: "1-5, -3"',
     )
 
     # LLM model option
@@ -60,7 +60,16 @@ def main():
         default="ollama/qwen3",
         help=f"LLM model to use for citation extraction (default: ollama/qwen3). "
         f"Supported providers: {providers_help}. "
-        f"Examples: ollama/qwen3, gemini/gemini-1.5-flash, gemini/gemini-2.0-flash-exp",
+        f"Examples: ollama/qwen3, gemini/gemini-1.5-flash",
+    )
+
+    # Citation style option
+    parser.add_argument(
+        "--citation-style",
+        "-cs",
+        default="chicago-author-date",
+        help="Citation style for formatted output (default: chicago-author-date). "
+             "Place CSL files in the 'citation/styles' directory."
     )
 
     args = parser.parse_args()
@@ -79,7 +88,7 @@ def main():
 
         # Auto-detect input type and process
         print(f"Processing: {args.input}")
-        citation_info = extractor.extract_citation(
+        csl_data = extractor.extract_citation(
             args.input,
             output_dir=args.output_dir,
             doc_type_override=args.type,
@@ -87,16 +96,30 @@ def main():
             page_range=args.page_range,
         )
 
-        if citation_info:
+        if csl_data:
             print("\n" + "=" * 50)
             print("CITATION EXTRACTED SUCCESSFULLY")
             print("=" * 50)
-
-            # Display extracted citation
-            for key, value in citation_info.items():
+            
+            # Display raw CSL data
+            for key, value in csl_data.items():
                 print(f"{key.replace('_', ' ').title()}: {value}")
-
             print(f"\nCitation files saved to: {args.output_dir}")
+
+            # Display formatted bibliography
+            print("\n" + "=" * 50)
+            print(f"FORMATTED BIBLIOGRAPHY ({args.citation_style})")
+            print("=" * 50)
+            
+            bibliography, in_text_citation = format_bibliography([csl_data], args.citation_style)
+            
+            print(bibliography)
+            
+            print("\n" + "=" * 50)
+            print("IN-TEXT CITATION")
+            print("=" * 50)
+            print(in_text_citation)
+
 
         else:
             print("Failed to extract citation information.", file=sys.stderr)

@@ -29,6 +29,7 @@ from .utils import (
     guess_title_from_filename,
     detect_page_numbers,
     to_csl_json,
+    create_subset_pdf,
 )
 from .model import CitationLLM
 
@@ -36,6 +37,20 @@ from .model import CitationLLM
 logging.basicConfig(
     level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s"
 )
+
+# --- Essential Fields for Early Exit ---
+ESSENTIAL_FIELDS = {
+    "book": ["title", "author", "year", "publisher"],
+    "thesis": ["title", "author", "year", "publisher"],
+    "journal": ["title", "author", "journal_name", "year", "volume", "number", "page_numbers"],
+    "bookchapter": ["title", "author", "book_name", "editor", "publisher", "page_numbers"],
+}
+
+
+def _has_all_essential_fields(citation_info: Dict, doc_type: str) -> bool:
+    """Check if all essential fields for the doc type are present."""
+    required_fields = ESSENTIAL_FIELDS.get(doc_type, [])
+    return all(field in citation_info for field in required_fields)
 
 
 class CitationExtractor:
@@ -92,101 +107,109 @@ class CitationExtractor:
         lang: str = "eng+chi_sim",
         page_range: str = "1-5, -3",
     ) -> Optional[Dict]:
-        """Extract citation from PDF following the new LLM-focused workflow."""
+        """Extract citation from PDF using the new efficient, iterative workflow."""
+        temp_pdf_path = None
         try:
             print(f"📄 Starting PDF citation extraction...")
 
-            # Step 1: Analyze PDF for page count and filename
-            print("🔍 Step 1: Analyzing PDF structure...")
-            num_pages, filename = self._analyze_pdf_structure(input_pdf_path)
+            # Step 1: Analyze original PDF for page count
+            print("🔍 Step 1: Analyzing original PDF structure...")
+            num_pages, _ = self._analyze_pdf_structure(input_pdf_path)
             if num_pages == 0:
                 logging.error(f"Could not read PDF file: {input_pdf_path}")
                 return None
 
-            # Step 2: Determine document type
-            print("🔍 Step 2: Determining document type...")
+            # Step 2: Create a temporary subset PDF based on page_range
+            print(f"✂️ Step 2: Creating temporary PDF from page range '{page_range}'...")
+            temp_pdf_path = create_subset_pdf(input_pdf_path, page_range, num_pages)
+            if not temp_pdf_path:
+                return None # Error handled in create_subset_pdf
+
+            # Step 3: Ensure the temporary PDF is searchable (OCR if needed)
+            print("🔍 Step 3: Ensuring temporary PDF is searchable...")
+            searchable_pdf_path = ensure_searchable_pdf(temp_pdf_path, lang)
+
+            # Step 4: Determine document type
+            print("🔍 Step 4: Determining document type...")
+            doc = fitz.open(searchable_pdf_path)
+            temp_num_pages = doc.page_count
+            doc.close()
+            
             if doc_type_override:
                 doc_type = doc_type_override
                 print(f"📋 Document type overridden to: {doc_type}")
             else:
-                # Initial determination by page count
-                doc_type = determine_document_type(num_pages)
-                print(f"📋 Initial document type: {doc_type} ({num_pages} pages)")
+                doc_type = determine_document_type(num_pages) # Use original page count for initial guess
+                print(f"📋 Initial document type: {doc_type} (based on {num_pages} pages)")
+                # Refine guess based on content if needed
+                enhanced_type = enhance_document_type_detection(searchable_pdf_path, doc_type)
+                if enhanced_type != doc_type:
+                    doc_type = enhanced_type
+                    print(f"📋 Enhanced analysis suggests {doc_type.upper()}.")
 
-            # Step 3: Ensure PDF is searchable (OCR if needed)
-            print("🔍 Step 3: Ensuring PDF is searchable...")
-            searchable_pdf_path = ensure_searchable_pdf(
-                input_pdf_path, num_pages, lang, page_range
-            )
+            # Step 5: Iterative LLM Extraction
+            print(f"🤖 Step 5: Starting iterative LLM extraction for {doc_type}...")
+            accumulated_text = ""
+            citation_info = {}
+            
+            doc = fitz.open(searchable_pdf_path)
+            for i in range(doc.page_count):
+                print(f"  - Processing page {i + 1} of {doc.page_count}...")
+                page_text = extract_pdf_text(searchable_pdf_path, page_number=i)
+                accumulated_text += page_text + "\n\n"
+                
+                # Call LLM with the accumulated text
+                current_citation = self.llm.extract_citation_from_text(accumulated_text, doc_type)
+                
+                # Merge new findings into our main citation_info
+                for key, value in current_citation.items():
+                    if key not in citation_info:
+                        citation_info[key] = value
+                
+                # Check for early exit
+                if _has_all_essential_fields(citation_info, doc_type):
+                    print(f"✅ All essential fields for '{doc_type}' found. Stopping early.")
+                    break
+            doc.close()
 
-            # Step 4: Extract text for LLM
-            print("🔍 Step 4: Extracting text for LLM...")
-            pdf_text = extract_pdf_text(searchable_pdf_path, doc_type, page_range)
-            if not pdf_text:
-                logging.error("Could not extract text from PDF.")
+            if not citation_info:
+                print("❌ Failed to extract any citation information with LLM.")
                 return None
 
-            # Step 5: Refine document type based on content
-            print("🔍 Step 5: Refining document type with content analysis...")
-            if not doc_type_override:
-                if doc_type == "book":
-                    # Check for thesis keywords
-                    thesis_keywords = [
-                        "thesis",
-                        "dissertation",
-                        "phd",
-                        "master",
-                        "doctoral",
-                        "instructor",
-                    ]
-                    if any(
-                        keyword in pdf_text[:3000].lower()
-                        for keyword in thesis_keywords
-                    ):
-                        doc_type = "thesis"
-                        print("📋 Content analysis suggests THESIS.")
+            # Step 6: Post-process and augment LLM output
+            print("🔍 Step 6: Post-processing and augmenting results...")
+            if (
+                doc_type in ["journal", "bookchapter"]
+                and "page_numbers" not in citation_info
+            ):
+                first_page, last_page = detect_page_numbers(searchable_pdf_path)
+                if first_page and last_page:
+                    citation_info["page_numbers"] = f"{first_page}-{last_page}"
+                    print(f"📄 Page numbers detected and added: {first_page}-{last_page}")
 
-                # Enhanced document type detection for journal vs book chapter
-                elif doc_type == "journal":
-                    enhanced_type = enhance_document_type_detection(
-                        searchable_pdf_path, doc_type
-                    )
-                    if enhanced_type != doc_type:
-                        doc_type = enhanced_type
-                        print(f"📋 Enhanced analysis suggests {doc_type.upper()}.")
-
-            # Step 6: Use LLM to extract citation
-            print(f"🤖 Step 6: Using LLM to extract {doc_type} citation...")
-            citation_info = self.llm.extract_citation_from_text(pdf_text, doc_type)
-
-            if citation_info:
-                # Post-process and augment LLM output
-                if (
-                    doc_type in ["journal", "bookchapter"]
-                    and "page_numbers" not in citation_info
-                ):
-                    first_page, last_page = detect_page_numbers(searchable_pdf_path)
-                    if first_page and last_page:
-                        citation_info["page_numbers"] = f"{first_page}-{last_page}"
-                        print(
-                            f"📄 Page numbers detected and added: {first_page}-{
-                                last_page
-                            }"
-                        )
-
-                # Step 7: Convert to CSL JSON and save
-                print("💾 Step 7: Converting to CSL JSON and saving...")
-                csl_data = to_csl_json(citation_info, doc_type)
-                save_citation(csl_data, output_dir)
-                print("✅ Citation extraction completed successfully!")
-                return csl_data
-            else:
-                print("❌ Failed to extract citation information with LLM.")
-                return None
+            # Step 7: Convert to CSL JSON and save
+            print("💾 Step 7: Converting to CSL JSON and saving...")
+            csl_data = to_csl_json(citation_info, doc_type)
+            save_citation(csl_data, output_dir)
+            print("✅ Citation extraction completed successfully!")
+            return csl_data
 
         except Exception as e:
             logging.error(f"Error extracting citation from PDF: {e}")
+            import traceback
+            logging.debug(traceback.format_exc())
             return None
+        finally:
+            # Clean up the temporary file
+            if temp_pdf_path and os.path.exists(temp_pdf_path):
+                os.remove(temp_pdf_path)
+                logging.info(f"Removed temporary file: {temp_pdf_path}")
+            # If OCR created a file from a temp file, clean that up too
+            if 'searchable_pdf_path' in locals() and searchable_pdf_path != temp_pdf_path and os.path.exists(searchable_pdf_path):
+                 if "temp" in searchable_pdf_path.lower() or "tmp" in os.path.basename(searchable_pdf_path):
+                    os.remove(searchable_pdf_path)
+                    logging.info(f"Removed temporary OCR file: {searchable_pdf_path}")
+
 
     def extract_from_media_file(
         self, input_media_path: str, output_dir: str = "example"
@@ -383,9 +406,7 @@ class CitationExtractor:
                         if author_meta and author_meta.get("content"):
                             citation_info["author"] = author_meta.get("content")
                             print(
-                                f"👤 HTML meta author extracted: {
-                                    citation_info['author']
-                                }"
+                                f"👤 HTML meta author extracted: {citation_info['author']}"
                             )
 
                 except Exception as e:

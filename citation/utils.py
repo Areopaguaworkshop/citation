@@ -4,8 +4,9 @@ import logging
 import fitz  # PyMuPDF
 import requests
 from urllib.parse import urlparse
-from typing import Optional, Dict, Tuple
+from typing import Optional, Dict, Tuple, List
 import re
+import tempfile
 
 
 import re
@@ -178,13 +179,13 @@ def guess_title_from_filename(filename: str) -> Optional[str]:
     return None
 
 
-def parse_page_range(page_range_str: str, total_pages: int) -> Optional[str]:
+def parse_page_range(page_range_str: str, total_pages: int) -> List[int]:
     """
-    Parse a page range string (e.g., "1-5, -3") into a comma-separated list of 1-based page numbers.
-    Returns None if the range is invalid or empty.
+    Parse a page range string (e.g., "1-5, -3") into a sorted list of 1-based page numbers.
+    Returns an empty list if the range is invalid or empty.
     """
     if not page_range_str:
-        return None
+        return []
 
     pages_to_process = set()
     parts = page_range_str.split(",")
@@ -226,11 +227,7 @@ def parse_page_range(page_range_str: str, total_pages: int) -> Optional[str]:
             except ValueError:
                 logging.warning(f"Invalid page number: {part}. Skipping.")
 
-    if not pages_to_process:
-        return None
-
-    # Sort and convert to comma-separated string for ocrmypdf
-    return ",".join(map(str, sorted(list(pages_to_process))))
+    return sorted(list(pages_to_process))
 
 
 def detect_page_numbers(pdf_path: str) -> Tuple[Optional[int], Optional[int]]:
@@ -283,87 +280,113 @@ def detect_page_numbers(pdf_path: str) -> Tuple[Optional[int], Optional[int]]:
 
 
 def ensure_searchable_pdf(
-    pdf_path: str, num_pages: int, lang: str = "eng+chi_sim", page_range: str = "1-5, -3"
+    pdf_path: str, lang: str = "eng+chi_sim"
 ) -> str:
-    """Ensure PDF is searchable using OCR if needed, processing only the specified page range."""
+    """Ensure PDF is searchable using OCR if needed."""
     try:
-        # Check if PDF is already searchable by checking the first page in the range
         doc = fitz.open(pdf_path)
-        
-        # Determine pages to check for text
-        check_pages_str = parse_page_range(page_range, num_pages)
-        if not check_pages_str:
-            logging.warning("Page range resulted in no pages to process. Using original PDF.")
+        # Check if the first page has text. A more robust check might be needed
+        # for PDFs with mixed image/text pages.
+        if doc.page_count > 0 and doc[0].get_text().strip():
+            logging.info("PDF appears to be searchable.")
+            doc.close()
             return pdf_path
-            
-        first_page_to_check = int(check_pages_str.split(',')[0]) - 1 # 0-indexed
-        
-        first_page = doc[first_page_to_check]
-        text = first_page.get_text()
         doc.close()
 
-        if text.strip():
-            logging.info("PDF appears to be searchable.")
-            return pdf_path
-
-        # OCR the PDF
-        logging.info(f"PDF is not searchable, running OCR with lang='{lang}' on page range='{page_range}'...")
-
-        output_dir = os.path.dirname(pdf_path) or "."
-        ocr_output = os.path.join(output_dir, f"ocr_{os.path.basename(pdf_path)}")
-
-        # Use the parsed page range for OCR
-        ocr_pages = parse_page_range(page_range, num_pages)
+        logging.info(f"PDF is not searchable or empty, running OCR with lang='{lang}'...")
         
-        if not ocr_pages:
-            logging.error("Cannot perform OCR: The specified page range is empty or invalid.")
-            return pdf_path
+        # Create a path for the OCR'd file in the same directory
+        output_dir = os.path.dirname(pdf_path) or "."
+        base_name = os.path.basename(pdf_path)
+        ocr_output_path = os.path.join(output_dir, f"ocr_{base_name}")
 
-        cmd = ["ocrmypdf", "--deskew", "--force-ocr", "-l", lang, "--pages", ocr_pages, pdf_path, ocr_output]
+        cmd = ["ocrmypdf", "--deskew", "--force-ocr", "-l", lang, pdf_path, ocr_output_path]
 
         logging.info(f"Running command: {' '.join(cmd)}")
         process = subprocess.run(cmd, capture_output=True, text=True, encoding="utf-8", errors="replace")
 
         if process.returncode == 0:
-            logging.info(f"OCR completed successfully: {ocr_output}")
-            print(process.stdout)
-            return ocr_output
+            logging.info(f"OCR completed successfully: {ocr_output_path}")
+            # If the original path was a temp file, remove it as we now have the OCR'd version
+            if "temp" in pdf_path.lower() and os.path.basename(pdf_path).startswith("tmp"):
+                 os.remove(pdf_path)
+            return ocr_output_path
         else:
             logging.error(f"OCR failed with return code {process.returncode}.")
             logging.error(f"Stderr: {process.stderr}")
-            print(process.stderr)
+            # Return original path on failure
             return pdf_path
 
     except Exception as e:
-        logging.error(f"Error ensuring searchable PDF: {e}")
+        logging.error(f"Error in ensure_searchable_pdf: {e}")
         return pdf_path
 
 
-def extract_pdf_text(pdf_path: str, doc_type: str, page_range: str = "1-5, -3") -> str:
-    """Extract text from specified page range in a PDF."""
-    try:
-        doc = fitz.open(pdf_path)
-        text = ""
-        
-        total_pages = doc.page_count
-        pages_str = parse_page_range(page_range, total_pages)
-        
-        if not pages_str:
-            logging.warning("Could not parse page range, extracting no text.")
-            return ""
-            
-        pages_to_extract = [int(p) - 1 for p in pages_str.split(',')]
+def create_subset_pdf(pdf_path: str, page_range: str, total_pages: int) -> Optional[str]:
+    """
+    Creates a temporary PDF file containing only the pages specified in the page range.
+    Returns the path to the temporary file, or None if failed.
+    """
+    pages_to_include = parse_page_range(page_range, total_pages)
+    if not pages_to_include:
+        logging.error("Failed to create subset PDF: No valid pages specified.")
+        return None
 
-        for i in pages_to_extract:
-            if 0 <= i < total_pages:
-                page = doc[i]
-                text += page.get_text() + "\n"
+    try:
+        source_doc = fitz.open(pdf_path)
+        new_doc = fitz.open()  # Create a new, empty PDF
+
+        # Convert 1-based page numbers to 0-based indices
+        page_indices = [p - 1 for p in pages_to_include]
         
-        doc.close()
-        return text
+        new_doc.insert_pdf(source_doc, from_page=min(page_indices), to_page=max(page_indices))
+
+        # Since older versions don't support selected_pages, we might get more pages than needed.
+        # We need to manually delete the pages we don't want.
+        # This is less efficient but more compatible.
+        pages_to_keep_in_new_doc = [page_indices.index(p) for p in page_indices]
+        
+        # Build a list of pages to delete
+        pages_to_delete = [i for i in range(new_doc.page_count) if i not in pages_to_keep_in_new_doc]
+
+        # Delete pages in reverse order to avoid index shifting issues
+        for i in sorted(pages_to_delete, reverse=True):
+            new_doc.delete_page(i)
+
+        # Create a temporary file to save the new PDF
+        with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as temp_file:
+            temp_path = temp_file.name
+        
+        new_doc.save(temp_path, garbage=4, deflate=True, clean=True)
+        
+        source_doc.close()
+        new_doc.close()
+
+        logging.info(f"Created temporary subset PDF with {len(pages_to_include)} pages at: {temp_path}")
+        return temp_path
 
     except Exception as e:
-        logging.error(f"Error extracting text from PDF: {e}")
+        logging.error(f"Error creating subset PDF: {e}")
+        if 'temp_path' in locals() and os.path.exists(temp_path):
+            os.remove(temp_path)
+        return None
+
+
+def extract_pdf_text(pdf_path: str, page_number: int) -> str:
+    """Extract text from a specific page in a PDF."""
+    try:
+        doc = fitz.open(pdf_path)
+        if 0 <= page_number < doc.page_count:
+            page = doc[page_number]
+            text = page.get_text()
+            doc.close()
+            return text
+        else:
+            logging.warning(f"Page number {page_number} is out of range for PDF with {doc.page_count} pages.")
+            doc.close()
+            return ""
+    except Exception as e:
+        logging.error(f"Error extracting text from page {page_number} of PDF: {e}")
         return ""
 
 
@@ -468,32 +491,53 @@ def format_author_csl(author_name: str) -> list:
         return []
 
     authors = []
-    # Regex to check for Chinese characters
-    is_chinese = lambda s: re.search(r'[\u4e00-\u9fff]', s)
+    # Regex to check for CJK characters (Chinese, Japanese, Korean)
+    is_cjk = lambda s: re.search(r'[\u4e00-\u9fff\u3040-\u30ff\uac00-\ud7af]', s)
 
-    for name_part in author_name.split(','):
-        name = name_part.strip()
+    # Step 1: Smart Separation
+    # Normalize primary delimiters to a standard comma
+    processed_author_name = re.sub(r'[\n;,、]', ',', author_name)
+    
+    # Split by the standard comma first
+    name_parts = processed_author_name.split(',')
+
+    final_name_list = []
+    for part in name_parts:
+        part = part.strip()
+        if not part:
+            continue
+        # If the part contains CJK characters, also split by space
+        if is_cjk(part):
+            final_name_list.extend(part.split())
+        else:
+            final_name_list.append(part)
+
+    # Step 2: Formatting Individual Names
+    for name in final_name_list:
+        name = name.strip()
         if not name:
             continue
 
-        if is_chinese(name):
+        if is_cjk(name):
             literal_name = name
-            # Chinese name parsing logic
-            if len(name) in [2, 3]:
+            # CJK name parsing logic
+            if len(name) in [2, 3, 4]: # Common lengths for CJK names
                 family = name[0]
                 given = name[1:]
-            elif len(name) == 4:
-                family = name[:2]
-                given = name[2:]
+                if len(name) == 4: # Handle two-character family names
+                    family = name[:2]
+                    given = name[2:]
             else: # Fallback for other lengths
                 family = name[0]
                 given = name[1:]
             
-            # Convert to Pinyin
-            family_pinyin = "".join(item[0] for item in pinyin(family, style=Style.NORMAL)).title()
-            given_pinyin = "".join(item[0] for item in pinyin(given, style=Style.NORMAL)).title()
-            
-            authors.append({"family": family_pinyin, "given": given_pinyin, "literal": literal_name})
+            # Convert to Pinyin for Chinese names if possible, otherwise keep literal
+            try:
+                family_pinyin = "".join(item[0] for item in pinyin(family, style=Style.NORMAL)).title()
+                given_pinyin = "".join(item[0] for item in pinyin(given, style=Style.NORMAL)).title()
+                authors.append({"family": family_pinyin, "given": given_pinyin, "literal": literal_name})
+            except:
+                 authors.append({"literal": literal_name}) # Fallback for non-Chinese CJK names
         else:
             # Western name parsing logic
             parts = name.split()
@@ -505,6 +549,7 @@ def format_author_csl(author_name: str) -> list:
                 authors.append({"literal": name}) # Treat as a single literal name if structure is unclear
     
     return authors
+
 
 
 def to_csl_json(data: Dict, doc_type: str) -> Dict:
@@ -551,13 +596,14 @@ def to_csl_json(data: Dict, doc_type: str) -> Dict:
         "title": "title",
         "publisher": "publisher",
         "city": "publisher-place",
-        "journal": "container-title",
+        "journal_name": "container-title",
         "volume": "volume",
         "issue": "issue",
-        "pages": "page",
+        "page_numbers": "page",
         "url": "URL",
         "doi": "DOI",
         "isbn": "ISBN",
+        "book_name": "container-title",
     }
     for old_key, new_key in field_mapping.items():
         if old_key in data:
@@ -626,3 +672,63 @@ def extract_publisher_from_domain(url: str) -> Optional[str]:
     except Exception as e:
         logging.error(f"Error extracting publisher from domain: {e}")
         return None
+
+
+def to_bibtex(csl_data: Dict) -> str:
+    """Convert CSL JSON to BibTeX format."""
+    # This is a simplified converter. For a robust solution, a dedicated library
+    # like `pybtex` or `manubot` would be better.
+    
+    bib_type = csl_data.get("type", "misc")
+    bib_id = csl_data.get("id", "unknown")
+    
+    bib_map = {
+        "book": "@book",
+        "article-journal": "@article",
+        "chapter": "@incollection",
+        "thesis": "@phdthesis",
+        "webpage": "@misc",
+    }
+    bib_entry_type = bib_map.get(bib_type, "@misc")
+    
+    bib_fields = []
+    
+    # Title
+    if "title" in csl_data:
+        bib_fields.append(f"  title = {{{csl_data['title']}}}")
+        
+    # Author
+    if "author" in csl_data:
+        authors = " and ".join([f"{a.get('family', '')}, {a.get('given', '')}" for a in csl_data["author"]])
+        bib_fields.append(f"  author = {{{authors}}}")
+        
+    # Year
+    if "issued" in csl_data and "date-parts" in csl_data["issued"]:
+        year = csl_data["issued"]["date-parts"][0][0]
+        bib_fields.append(f"  year = {{{year}}}")
+        
+    # Publisher
+    if "publisher" in csl_data:
+        bib_fields.append(f"  publisher = {{{csl_data['publisher']}}}")
+        
+    # Journal
+    if "container-title" in csl_data:
+        bib_fields.append(f"  journal = {{{csl_data['container-title']}}}")
+        
+    # Volume, Number, Pages
+    if "volume" in csl_data:
+        bib_fields.append(f"  volume = {{{csl_data['volume']}}}")
+    if "issue" in csl_data:
+        bib_fields.append(f"  number = {{{csl_data['issue']}}}")
+    if "page" in csl_data:
+        bib_fields.append(f"  pages = {{{csl_data['page']}}}")
+        
+    # URL and DOI
+    if "URL" in csl_data:
+        bib_fields.append(f"  url = {{{csl_data['URL']}}}")
+    if "DOI" in csl_data:
+        bib_fields.append(f"  doi = {{{csl_data['DOI']}}}")
+        
+    bib_entry = f"{bib_entry_type}{{{bib_id},\n" + ",\n".join(bib_fields) + "\n}"
+    
+    return bib_entry

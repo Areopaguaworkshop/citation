@@ -54,6 +54,8 @@ charset-normalizer==3.4.2
     # via pdfminer-six
     # via requests
     # via trafilatura
+citeproc-py==0.8.2
+    # via citation
 click==8.2.1
     # via litellm
     # via nltk
@@ -147,6 +149,7 @@ litellm==1.74.3
     # via dspy
 lxml==5.4.0
     # via citation
+    # via citeproc-py
     # via htmldate
     # via justext
     # via lxml-html-clean
