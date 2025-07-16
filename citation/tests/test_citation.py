@@ -1,7 +1,7 @@
 import os
 import pytest
 from citation import CitationExtractor
-from citation.utils import guess_title_from_filename, detect_page_numbers, format_author_csl
+from citation.utils import guess_title_from_filename, format_author_csl
 
 TEST_PDF_DIR = "examples"
 TEST_URL = "https://www.example.com"

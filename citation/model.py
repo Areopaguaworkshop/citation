@@ -143,6 +143,38 @@ class CitationLLM:
             logging.error(f"Error with book chapter LLM extraction: {e}")
             return {}
 
+    def extract_page_numbers_for_journal_chapter(self, first_page_text: str, second_page_text: str, last_page_text: str, second_to_last_page_text: str) -> Dict:
+        """Extract page numbers for journal/bookchapter using specific logic."""
+        try:
+            signature = dspy.Signature(
+                "first_page_text, second_page_text, last_page_text, second_to_last_page_text -> page_numbers",
+                "Determine the page range (e.g., '20-41') for a document. "
+                "1. Look for a number in the header or footer of the 'first_page_text'. This is the starting page. "
+                "2. If not found, look for a number in the header or footer of the 'second_page_text'. If found, the starting page is that number minus 1. "
+                "3. Look for a number in the header or footer of the 'last_page_text'. This is the ending page. "
+                "4. If not found, look for a number in the header or footer of the 'second_to_last_page_text'. If found, the ending page is that number plus 1. "
+                "If you can determine both a start and end page, return them as 'start-end'. Otherwise, return 'Unknown'.",
+            )
+
+            predictor = dspy.Predict(signature)
+            result = predictor(
+                first_page_text=first_page_text,
+                second_page_text=second_page_text,
+                last_page_text=last_page_text,
+                second_to_last_page_text=second_to_last_page_text
+            )
+
+            citation_info = {}
+            if result.page_numbers and result.page_numbers.lower() != 'unknown':
+                citation_info['page_numbers'] = result.page_numbers.strip()
+            
+            logging.info(f"Page number LLM extraction result: {citation_info}")
+            return citation_info
+
+        except Exception as e:
+            logging.error(f"Error with page number LLM extraction: {e}")
+            return {}
+
     def extract_citation_from_text(self, text: str, doc_type: str) -> Dict:
         """Extract citation based on document type after truncating long text."""
         truncated_text = self._truncate_text(text)

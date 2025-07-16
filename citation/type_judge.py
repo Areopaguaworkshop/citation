@@ -1,6 +1,6 @@
 import logging
 import re
-from typing import Tuple
+from typing import Tuple, Optional
 
 import fitz  # PyMuPDF
 
@@ -79,12 +79,6 @@ def differentiate_article_or_chapter(pdf_path: str) -> str:
             doc.close()
             return "journal"
 
-        first_page_num, _ = detect_page_numbers(pdf_path)
-        if first_page_num and first_page_num > 100:
-            logging.info(f"Classified as JOURNAL based on high starting page number: {first_page_num}")
-            doc.close()
-            return "journal"
-
         # Rule 3: High-confidence chapter keywords (immediate decision)
         chapter_knockout_keywords = [
             'edited by', 'editor', 'isbn', 'press', 'herausgeber', 'éditeur', 
@@ -122,49 +116,4 @@ def determine_document_type(pdf_path: str, num_pages: int) -> str:
         return differentiate_article_or_chapter(pdf_path)
 
 
-def detect_page_numbers(pdf_path: str) -> Tuple[int, int]:
-    """
-    Detects the first and last page numbers from the text, typically in the footer.
-    This is a helper for the differentiation logic.
-    """
-    first_page_num, last_page_num = None, None
-    try:
-        doc = fitz.open(pdf_path)
-        if doc.page_count == 0:
-            return None, None
 
-        # Check first few pages for the first page number
-        for page_idx in range(min(3, doc.page_count)):
-            page = doc[page_idx]
-            footer_text = page.get_text("text", clip=fitz.Rect(page.rect.x0, page.rect.y1 - 80, page.rect.x1, page.rect.y1))
-            numbers = re.findall(r'\b(\d+)\b', footer_text)
-            if numbers:
-                for num_str in numbers:
-                    num = int(num_str)
-                    if 1 <= num <= 9999:
-                        first_page_num = num - page_idx
-                        break
-                if first_page_num is not None:
-                    break
-        
-        # Check last few pages for the last page number
-        for i in range(doc.page_count):
-            page_idx = doc.page_count - 1 - i
-            if page_idx < 0 or i >= 3: # Check last 3 pages at most
-                break
-            
-            page = doc[page_idx]
-            footer_text = page.get_text("text", clip=fitz.Rect(page.rect.x0, page.rect.y1 - 80, page.rect.x1, page.rect.y1))
-            numbers = re.findall(r'\b(\d+)\b', footer_text)
-            
-            if numbers:
-                candidate_nums = [int(n) for n in numbers if 1 <= int(n) <= 9999]
-                if candidate_nums:
-                    last_page_num = max(candidate_nums)
-                    break
-
-        doc.close()
-        return first_page_num, last_page_num
-    except Exception as e:
-        logging.error(f"Error detecting page numbers: {e}")
-        return None, None

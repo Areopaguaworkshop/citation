@@ -25,7 +25,6 @@ from .utils import (
     determine_url_type,
     save_citation,
     guess_title_from_filename,
-    detect_page_numbers,
     to_csl_json,
     create_subset_pdf,
 )
@@ -41,7 +40,7 @@ logging.basicConfig(
 ESSENTIAL_FIELDS = {
     "book": ["title", "author", "year", "publisher"],
     "thesis": ["title", "author", "year", "publisher", "genre"],
-    "journal": ["title", "author", "container-title", "year", "volume", "issue", "page_numbers"],
+    "journal": ["title", "author", "container-title", "year", "page_numbers"], # volume/issue handled separately
     "bookchapter": ["title", "author", "container-title", "editor", "publisher", "page_numbers"],
 }
 
@@ -49,7 +48,16 @@ ESSENTIAL_FIELDS = {
 def _has_all_essential_fields(citation_info: Dict, doc_type: str) -> bool:
     """Check if all essential fields for the doc type are present."""
     required_fields = ESSENTIAL_FIELDS.get(doc_type, [])
-    return all(field in citation_info for field in required_fields)
+    has_required = all(field in citation_info for field in required_fields)
+
+    if not has_required:
+        return False
+
+    if doc_type == "journal":
+        # For journals, we also need at least a volume or an issue number.
+        return "volume" in citation_info or "issue" in citation_info
+    
+    return True
 
 
 class CitationExtractor:
@@ -141,10 +149,30 @@ class CitationExtractor:
                 doc_type = determine_document_type(searchable_pdf_path, num_pages)
                 print(f"📋 Determined document type: {doc_type.upper()}")
 
-            # Step 5: Iterative LLM Extraction
-            print(f"🤖 Step 5: Starting iterative LLM extraction for {doc_type}...")
-            accumulated_text = ""
             citation_info = {}
+
+            # Step 5: Specialized page number extraction for journals and book chapters
+            if doc_type in ["journal", "bookchapter"]:
+                print(f"🤖 Step 5: Specialized page number extraction for {doc_type}...")
+                doc = fitz.open(searchable_pdf_path)
+                if doc.page_count > 0:
+                    first_page_text = extract_pdf_text(searchable_pdf_path, 0)
+                    second_page_text = extract_pdf_text(searchable_pdf_path, 1) if doc.page_count > 1 else ""
+                    last_page_text = extract_pdf_text(searchable_pdf_path, doc.page_count - 1)
+                    second_to_last_page_text = extract_pdf_text(searchable_pdf_path, doc.page_count - 2) if doc.page_count > 1 else ""
+                    
+                    page_number_info = self.llm.extract_page_numbers_for_journal_chapter(
+                        first_page_text, second_page_text, last_page_text, second_to_last_page_text
+                    )
+                    if "page_numbers" in page_number_info:
+                        citation_info["page_numbers"] = page_number_info["page_numbers"]
+                        print(f"📄 Page numbers extracted by LLM: {citation_info['page_numbers']}")
+                doc.close()
+
+
+            # Step 6: Iterative LLM Extraction for all other fields
+            print(f"🤖 Step 6: Starting iterative LLM extraction for {doc_type}...")
+            accumulated_text = ""
             
             doc = fitz.open(searchable_pdf_path)
             for i in range(doc.page_count):
@@ -170,17 +198,6 @@ class CitationExtractor:
                 print("❌ Failed to extract any citation information with LLM.")
                 return None
 
-            # Step 6: Post-process and augment LLM output
-            print("🔍 Step 6: Post-processing and augmenting results...")
-            if (
-                doc_type in ["journal", "bookchapter"]
-                and "page_numbers" not in citation_info
-            ):
-                first_page, last_page = detect_page_numbers(searchable_pdf_path)
-                if first_page and last_page:
-                    citation_info["page_numbers"] = f"{first_page}-{last_page}"
-                    print(f"📄 Page numbers detected and added: {first_page}-{last_page}")
-
             # Step 7: Convert to CSL JSON and save
             print("💾 Step 7: Converting to CSL JSON and saving...")
             csl_data = to_csl_json(citation_info, doc_type)
@@ -203,6 +220,7 @@ class CitationExtractor:
                  if "temp" in searchable_pdf_path.lower() or "tmp" in os.path.basename(searchable_pdf_path):
                     os.remove(searchable_pdf_path)
                     logging.info(f"Removed temporary OCR file: {searchable_pdf_path}")
+
 
 
     def extract_from_media_file(

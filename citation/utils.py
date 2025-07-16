@@ -157,53 +157,7 @@ def parse_page_range(page_range_str: str, total_pages: int) -> List[int]:
     return sorted(list(pages_to_process))
 
 
-def detect_page_numbers(pdf_path: str) -> Tuple[Optional[int], Optional[int]]:
-    """Detect first and last page numbers from PDF footer, with improved robustness."""
-    try:
-        doc = fitz.open(pdf_path)
-        if doc.page_count == 0:
-            return None, None
 
-        first_page_num = None
-        last_page_num = None
-
-        # Check first few pages for the first page number
-        for page_idx in range(min(3, doc.page_count)):
-            page = doc[page_idx]
-            footer_text = page.get_text("text", clip=fitz.Rect(page.rect.x0, page.rect.y1 - 80, page.rect.x1, page.rect.y1))
-            numbers = re.findall(r"\b(\d+)\b", footer_text)
-            if numbers:
-                for num_str in numbers:
-                    num = int(num_str)
-                    if 1 <= num <= 9999:
-                        first_page_num = num - page_idx
-                        break
-                if first_page_num is not None:
-                    break
-        
-        # Check last few pages for the last page number
-        for i in range(doc.page_count):
-            page_idx = doc.page_count - 1 - i
-            if page_idx < 0 or i >= 3: # Check last 3 pages at most
-                break
-            
-            page = doc[page_idx]
-            footer_text = page.get_text("text", clip=fitz.Rect(page.rect.x0, page.rect.y1 - 80, page.rect.x1, page.rect.y1))
-            numbers = re.findall(r"\b(\d+)\b", footer_text)
-            
-            if numbers:
-                # Find the most likely candidate (often the largest number in the footer)
-                candidate_nums = [int(n) for n in numbers if 1 <= int(n) <= 9999]
-                if candidate_nums:
-                    last_page_num = max(candidate_nums)
-                    break
-
-        doc.close()
-        return first_page_num, last_page_num
-
-    except Exception as e:
-        logging.error(f"Error detecting page numbers: {e}")
-        return None, None
 
 
 def ensure_searchable_pdf(
