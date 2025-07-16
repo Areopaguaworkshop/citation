@@ -437,7 +437,8 @@ def format_author_csl(author_name: str) -> list:
         if is_cjk(part):
             final_name_list.extend(part.split())
         else:
-            final_name_list.append(part)
+            # For English names, also split by 'and'
+            final_name_list.extend(re.split(r'\s+and\s+', part, flags=re.IGNORECASE))
 
     # Step 2: Formatting Individual Names
     for name in final_name_list:

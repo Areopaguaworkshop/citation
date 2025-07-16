@@ -60,19 +60,10 @@ def differentiate_article_or_chapter(pdf_path: str) -> str:
 
         # --- Rule-Based Judging ---
 
-        # Rule 1: High-confidence chapter keywords (immediate decision)
-        chapter_knockout_keywords = [
-            'edited by', 'editor', 'isbn', 'press', 'herausgeber', 'éditeur', '主编', '出版社'
-        ]
-        for keyword in chapter_knockout_keywords:
-            if keyword in text_to_analyze:
-                logging.info(f"Classified as BOOKCHAPTER based on knockout keyword: '{keyword}'")
-                doc.close()
-                return "bookchapter"
-
-        # Rule 2: High-confidence journal keywords
+        # Rule 1: High-confidence journal keywords
         journal_knockout_keywords = [
-            'issn', 'journal', 'proceedings', 'zeitschrift', 'revue', '学报', '期刊'
+            'issn', 'journal', 'proceedings', 'zeitschrift', 'revue', 
+            '学报', '學報', '期刊', '雑誌', '紀要'  # S. Chinese, T. Chinese, Japanese
         ]
         for keyword in journal_knockout_keywords:
             if keyword in text_to_analyze:
@@ -80,11 +71,11 @@ def differentiate_article_or_chapter(pdf_path: str) -> str:
                 doc.close()
                 return "journal"
 
-        # Rule 3: Journal-specific patterns
-        has_volume = re.search(r'\b(volume|vol\.)\b', text_to_analyze)
-        has_issue = re.search(r'\b(issue|no\.)\b', text_to_analyze)
+        # Rule 2: Journal-specific patterns
+        has_volume = re.search(r'\b(volume|vol\.)\b|第\s*\d+\s*卷', text_to_analyze)
+        has_issue = re.search(r'\b(issue|no\.)\b|第\s*\d+\s*期', text_to_analyze)
         if has_volume and has_issue:
-            logging.info("Classified as JOURNAL based on presence of 'volume' and 'issue'")
+            logging.info("Classified as JOURNAL based on presence of 'volume'/'issue' or '卷'/'期'")
             doc.close()
             return "journal"
 
@@ -93,6 +84,17 @@ def differentiate_article_or_chapter(pdf_path: str) -> str:
             logging.info(f"Classified as JOURNAL based on high starting page number: {first_page_num}")
             doc.close()
             return "journal"
+
+        # Rule 3: High-confidence chapter keywords (immediate decision)
+        chapter_knockout_keywords = [
+            'edited by', 'editor', 'isbn', 'press', 'herausgeber', 'éditeur', 
+            '主编', '主編', '出版社', '編者', 'プレス' # S. Chinese, T. Chinese, Japanese
+        ]
+        for keyword in chapter_knockout_keywords:
+            if keyword in text_to_analyze:
+                logging.info(f"Classified as BOOKCHAPTER based on knockout keyword: '{keyword}'")
+                doc.close()
+                return "bookchapter"
 
         doc.close()
 
