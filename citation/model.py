@@ -4,19 +4,6 @@ from typing import Dict, Optional
 from .llm import get_llm_model
 
 
-def _truncate_text(text: str, max_length: int = 8192) -> str:
-    """Truncates text to a max length, keeping start and end."""
-    if len(text) <= max_length:
-        return text
-    
-    half_length = max_length // 2
-    return (
-        text[:half_length]
-        + "\n\n... (text truncated for brevity) ...\n\n"
-        + text[-half_length:]
-    )
-
-
 class CitationLLM:
     """LLM handler for citation extraction using DSPy."""
 
@@ -24,6 +11,13 @@ class CitationLLM:
         """Initialize the LLM."""
         self.llm = get_llm_model(llm_model)
         dspy.settings.configure(lm=self.llm)
+
+    def _truncate_text(self, text: str, max_tokens: int = 2048) -> str:
+        """Truncate text to a maximum number of tokens."""
+        tokens = text.split()
+        if len(tokens) > max_tokens:
+            return " ".join(tokens[:max_tokens])
+        return text
 
     def extract_book_citation(self, pdf_text: str) -> Dict:
         """Extract citation from book PDF text."""
@@ -83,10 +77,10 @@ class CitationLLM:
         """Extract citation from journal PDF text."""
         try:
             signature = dspy.Signature(
-                "pdf_text -> title, author, journal_name, year, volume, number, page_numbers, isbn, doi",
+                "pdf_text -> title, author, container_title, year, volume, issue, page_numbers, isbn, doi",
                 "Extract citation information from journal PDF text. Focus on first page header and footer. "
                 "Look for title in first line with biggest font size, author usually right under the title. "
-                "Find journal name, year, volume, and issue number in header or footer of first page. "
+                "Find journal name (as container_title), year, volume, and issue number in header or footer of first page. "
                 "Page numbers format should be 'start-end' (e.g., '20-41'). "
                 "For Chinese text, extract information similarly. Return 'Unknown' for missing fields.",
             )
@@ -98,7 +92,11 @@ class CitationLLM:
             citation_info = {}
             for key, value in result.items():
                 if value and value.strip() and value.strip().lower() != "unknown":
-                    citation_info[key] = value.strip()
+                    # Convert container_title back to container-title for compatibility
+                    if key == "container_title":
+                        citation_info["container-title"] = value.strip()
+                    else:
+                        citation_info[key] = value.strip()
 
             logging.info(f"Journal LLM extraction result: {citation_info}")
             return citation_info
@@ -111,12 +109,18 @@ class CitationLLM:
         """Extract citation from book chapter PDF text."""
         try:
             signature = dspy.Signature(
-                "pdf_text -> title, author, book_name, editor, publisher, year, location, page_numbers, isbn, doi",
-                "Extract citation information from book chapter PDF text. The first three pages may contain book name and editor. "
-                "First, find parent book title (book_name), book editor, publisher, and year in the first 1-4 pages, look the 'edited by' should follows editors . "
-                "Second, Look for chapter title and chapter author within first 10 pages, The title will be big font-size in the first 1-2 lines, the author will right below it. "
-                "Thrid, find page numbers format should be 'start-end' (e.g., '20-41') on the footer or header with continue int.. "
-                "For Chinese text, extract information similarly. Return 'Unknown' for missing fields.",
+                "pdf_text -> title, author, container_title, editor, publisher, year, location, page_numbers, isbn, doi",
+                "Analyze the text from a book chapter and extract its citation metadata. "
+                "Identify the following fields: "
+                "- title: The title of the chapter itself. "
+                "- author: The author(s) of the chapter. "
+                "- container-title: The title of the book that contains the chapter. "
+                "- editor: The editor(s) of the book, often found near 'edited by'. "
+                "- publisher: The publisher of the book. "
+                "- year: The publication year of the book. "
+                "- page_numbers: The page range of the chapter (e.g., '20-41'). "
+                "- location, isbn, doi: If available. "
+                "For Chinese text, extract the information similarly. If a field is not found, return 'Unknown'.",
             )
 
             predictor = dspy.Predict(signature)
@@ -126,7 +130,11 @@ class CitationLLM:
             citation_info = {}
             for key, value in result.items():
                 if value and value.strip() and value.strip().lower() != "unknown":
-                    citation_info[key] = value.strip()
+                    # Convert container_title back to container-title for compatibility
+                    if key == "container_title":
+                        citation_info["container-title"] = value.strip()
+                    else:
+                        citation_info[key] = value.strip()
 
             logging.info(f"Book chapter LLM extraction result: {citation_info}")
             return citation_info
@@ -137,11 +145,7 @@ class CitationLLM:
 
     def extract_citation_from_text(self, text: str, doc_type: str) -> Dict:
         """Extract citation based on document type after truncating long text."""
-        
-        # Truncate the text to a reasonable length before sending to LLM
-        truncated_text = _truncate_text(text)
-        if len(text) != len(truncated_text):
-            logging.info(f"Text truncated: original {len(text)} chars, now {len(truncated_text)} chars.")
+        truncated_text = self._truncate_text(text)
 
         if doc_type == "book":
             return self.extract_book_citation(truncated_text)
@@ -155,3 +159,4 @@ class CitationLLM:
             # Default fallback
             logging.warning(f"Unknown document type: {doc_type}, using book extraction")
             return self.extract_book_citation(truncated_text)
+

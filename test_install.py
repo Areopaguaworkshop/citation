@@ -12,10 +12,10 @@ def test_imports():
     try:
         from citation import CitationExtractor
         print("✓ Citation extractor imported successfully")
-        return True
+        assert True
     except ImportError as e:
         print(f"✗ Import error: {e}")
-        return False
+        assert False
 
 def test_extractor_init():
     """Test that the extractor can be initialized."""
@@ -23,10 +23,10 @@ def test_extractor_init():
         from citation import CitationExtractor
         extractor = CitationExtractor()
         print("✓ Citation extractor initialized successfully")
-        return True
+        assert True
     except Exception as e:
         print(f"✗ Initialization error: {e}")
-        return False
+        assert False
 
 def test_cli_help():
     """Test that the CLI shows help."""
@@ -36,13 +36,13 @@ def test_cli_help():
                               capture_output=True, text=True)
         if result.returncode == 0:
             print("✓ CLI help command works")
-            return True
+            assert True
         else:
             print(f"✗ CLI help failed: {result.stderr}")
-            return False
+            assert False
     except Exception as e:
         print(f"✗ CLI test error: {e}")
-        return False
+        assert False
 
 def main():
     """Run all tests."""
@@ -59,8 +59,11 @@ def main():
     total = len(tests)
     
     for test in tests:
-        if test():
+        try:
+            test()
             passed += 1
+        except AssertionError:
+            pass
         print()
     
     print("=" * 50)

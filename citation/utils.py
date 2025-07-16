@@ -62,79 +62,6 @@ def is_media_file(file_path: str) -> bool:
     return ext.lower() in media_extensions
 
 
-def determine_document_type(num_pages: int) -> str:
-    """Determine document type based on page count."""
-    if num_pages >= 70:
-        return "book"
-    else:
-        return "journal"
-
-
-def enhance_document_type_detection(pdf_path: str, initial_type: str) -> str:
-    """Enhanced document type detection using content analysis."""
-    if initial_type not in ["journal", "bookchapter"]:
-        return initial_type
-    
-    try:
-        doc = fitz.open(pdf_path)
-        if doc.page_count == 0:
-            return initial_type
-        
-        # Extract first page text for analysis
-        first_page = doc[0]
-        page_text = first_page.get_text().lower()
-        
-        # Get header and footer areas
-        rect = first_page.rect
-        header_rect = fitz.Rect(rect.x0, rect.y0, rect.x1, rect.y0 + rect.height * 0.15)
-        footer_rect = fitz.Rect(rect.x0, rect.y1 - rect.height * 0.15, rect.x1, rect.y1)
-        
-        header_text = first_page.get_text(clip=header_rect).lower()
-        footer_text = first_page.get_text(clip=footer_rect).lower()
-        
-        # Journal indicators
-        journal_indicators = [
-            'journal', 'vol.', 'volume', 'issue', 'no.', 'number', 
-            'issn', 'proceedings', 'quarterly', 'annual', 'review',
-            '期刊', '卷', '期', '号', '学报', '杂志'  # Chinese indicators
-        ]
-        
-        # Book chapter indicators
-        chapter_indicators = [
-            'chapter', 'book', 'editor', 'edited by', 'isbn', 
-            'publisher', 'press', 'publication',
-            '章', '篇', '编', '主编', '出版社', '出版'  # Chinese indicators
-        ]
-        
-        # Count indicators in header and footer
-        journal_score = sum(1 for indicator in journal_indicators 
-                          if indicator in header_text or indicator in footer_text)
-        chapter_score = sum(1 for indicator in chapter_indicators 
-                          if indicator in header_text or indicator in footer_text)
-        
-        # Also check page numbering patterns
-        # Journals often have continuous page numbering
-        # Book chapters often have chapter-specific numbering
-        page_numbers = detect_page_numbers(pdf_path)
-        if page_numbers[0] and page_numbers[0] > 100:  # High page numbers suggest journal
-            journal_score += 1
-        
-        # Decision logic
-        if journal_score > chapter_score:
-            return "journal"
-        elif chapter_score > journal_score:
-            return "bookchapter"
-        else:
-            # Default to journal for short documents when unclear
-            return "journal"
-        
-        doc.close()
-        
-    except Exception as e:
-        logging.error(f"Error in enhanced document type detection: {e}")
-        return initial_type
-
-
 def guess_title_from_filename(filename: str) -> Optional[str]:
     """Guess title from PDF filename by removing common prefixes/suffixes."""
     # Remove file extension
@@ -596,14 +523,14 @@ def to_csl_json(data: Dict, doc_type: str) -> Dict:
         "title": "title",
         "publisher": "publisher",
         "city": "publisher-place",
-        "journal_name": "container-title",
+        "container-title": "container-title",
         "volume": "volume",
         "issue": "issue",
         "page_numbers": "page",
         "url": "URL",
         "doi": "DOI",
         "isbn": "ISBN",
-        "book_name": "container-title",
+        "genre": "genre",
     }
     for old_key, new_key in field_mapping.items():
         if old_key in data:

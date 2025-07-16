@@ -20,8 +20,6 @@ from .utils import (
     is_url,
     is_pdf_file,
     is_media_file,
-    determine_document_type,
-    enhance_document_type_detection,
     ensure_searchable_pdf,
     extract_pdf_text,
     determine_url_type,
@@ -31,6 +29,7 @@ from .utils import (
     to_csl_json,
     create_subset_pdf,
 )
+from .type_judge import determine_document_type
 from .model import CitationLLM
 
 # Configure logging
@@ -41,9 +40,9 @@ logging.basicConfig(
 # --- Essential Fields for Early Exit ---
 ESSENTIAL_FIELDS = {
     "book": ["title", "author", "year", "publisher"],
-    "thesis": ["title", "author", "year", "publisher"],
-    "journal": ["title", "author", "journal_name", "year", "volume", "number", "page_numbers"],
-    "bookchapter": ["title", "author", "book_name", "editor", "publisher", "page_numbers"],
+    "thesis": ["title", "author", "year", "publisher", "genre"],
+    "journal": ["title", "author", "container-title", "year", "volume", "issue", "page_numbers"],
+    "bookchapter": ["title", "author", "container-title", "editor", "publisher", "page_numbers"],
 }
 
 
@@ -139,13 +138,8 @@ class CitationExtractor:
                 doc_type = doc_type_override
                 print(f"📋 Document type overridden to: {doc_type}")
             else:
-                doc_type = determine_document_type(num_pages) # Use original page count for initial guess
-                print(f"📋 Initial document type: {doc_type} (based on {num_pages} pages)")
-                # Refine guess based on content if needed
-                enhanced_type = enhance_document_type_detection(searchable_pdf_path, doc_type)
-                if enhanced_type != doc_type:
-                    doc_type = enhanced_type
-                    print(f"📋 Enhanced analysis suggests {doc_type.upper()}.")
+                doc_type = determine_document_type(searchable_pdf_path, num_pages)
+                print(f"📋 Determined document type: {doc_type.upper()}")
 
             # Step 5: Iterative LLM Extraction
             print(f"🤖 Step 5: Starting iterative LLM extraction for {doc_type}...")
