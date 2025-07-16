@@ -301,6 +301,10 @@ class CitationExtractor:
                 print("🔍 Step 2: Extracting media metadata...")
                 citation_info = self._extract_media_metadata(url)
 
+            # Step 3: If essential fields are still missing, try searching online
+            if not citation_info.get("title"):
+                print("⚠️ Title is missing.")
+
             if citation_info:
                 citation_info["url"] = url
                 citation_info["date_accessed"] = datetime.now().strftime("%Y-%m-%d")
@@ -311,7 +315,7 @@ class CitationExtractor:
                     # A more robust check could be added here if needed
                     csl_type = "motion_picture" 
 
-                print("💾 Step 3: Converting to CSL JSON and saving...")
+                print("💾 Step 4: Converting to CSL JSON and saving...")
                 csl_data = to_csl_json(citation_info, csl_type)
                 save_citation(csl_data, output_dir)
                 

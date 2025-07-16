@@ -7,5 +7,6 @@ wheels/
 *.egg-info
 test/**/*
 GEMINI.md
+.env
 # venv
 .venv

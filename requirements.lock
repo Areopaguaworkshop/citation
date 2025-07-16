@@ -248,7 +248,6 @@ pytz==2025.2
     # via dateparser
     # via pandas
 pyyaml==6.0.2
-    # via citation
     # via datasets
     # via huggingface-hub
     # via newspaper3k
