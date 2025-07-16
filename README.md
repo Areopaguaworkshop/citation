@@ -1,6 +1,6 @@
 # Citation Extractor
 
-A powerful, LLM-driven tool to automatically extract citation information from PDFs, web pages, and local media files. It generates structured citation data in JSON and YAML formats and can format bibliographies using various citation styles.
+A powerful, LLM-driven tool to automatically extract citation information from PDFs, web pages, and local media files. It generates structured citation data in CSL-JSON format and can format bibliographies using various citation styles.
 
 ## Features
 
@@ -163,24 +163,6 @@ publisher: Example
 title: Example Domain
 type: webpage
 ```
-
-## Project Structure
-
-```
-.
-├── citation/
-│   ├── __init__.py
-│   ├── cli.py          # Command-line interface logic
-│   ├── llm.py          # LLM provider configuration
-│   ├── main.py         # Core extraction workflow
-│   ├── model.py        # DSPy signatures for LLM extraction
-│   ├── utils.py        # Helper functions
-│   └── tests/          # Pytest tests
-├── example/            # Example output files
-├── pyproject.toml      # Project definition and dependencies
-└── README.md           # This file
-```
-
 ## Contributing
 
 Contributions are welcome! Please feel free to submit a pull request.
