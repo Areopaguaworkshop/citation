@@ -62,48 +62,7 @@ def is_media_file(file_path: str) -> bool:
     return ext.lower() in media_extensions
 
 
-def guess_title_from_filename(filename: str) -> Optional[str]:
-    """Guess title from PDF filename by removing common prefixes/suffixes."""
-    # Remove file extension
-    title = os.path.splitext(filename)[0]
 
-    # Remove common prefixes and suffixes
-    prefixes_to_remove = [
-        r"^paper[_\-\s]*",
-        r"^article[_\-\s]*",
-        r"^document[_\-\s]*",
-        r"^draft[_\-\s]*",
-        r"^final[_\-\s]*",
-        r"^submission[_\-\s]*",
-        r"^\d{4}[_\-\s]*",  # Year prefixes
-    ]
-
-    suffixes_to_remove = [
-        r"[_\-\s]*final$",
-        r"[_\-\s]*draft$",
-        r"[_\-\s]*v\d+$",  # Version numbers
-        r"[_\-\s]*\d{4}$",  # Year suffixes
-        r"[_\-\s]*revised$",
-        r"[_\-\s]*submitted$",
-    ]
-
-    for prefix in prefixes_to_remove:
-        title = re.sub(prefix, "", title, flags=re.IGNORECASE)
-
-    for suffix in suffixes_to_remove:
-        title = re.sub(suffix, "", title, flags=re.IGNORECASE)
-
-    # Replace underscores and hyphens with spaces
-    title = re.sub(r"[_\-]+", " ", title)
-
-    # Clean up multiple spaces
-    title = re.sub(r"\s+", " ", title).strip()
-
-    # Only return if it seems like a reasonable title (not too short)
-    if len(title) > 3:
-        return title
-
-    return None
 
 
 def parse_page_range(page_range_str: str, total_pages: int) -> List[int]:
@@ -554,63 +513,3 @@ def extract_publisher_from_domain(url: str) -> Optional[str]:
     except Exception as e:
         logging.error(f"Error extracting publisher from domain: {e}")
         return None
-
-
-def to_bibtex(csl_data: Dict) -> str:
-    """Convert CSL JSON to BibTeX format."""
-    # This is a simplified converter. For a robust solution, a dedicated library
-    # like `pybtex` or `manubot` would be better.
-    
-    bib_type = csl_data.get("type", "misc")
-    bib_id = csl_data.get("id", "unknown")
-    
-    bib_map = {
-        "book": "@book",
-        "article-journal": "@article",
-        "chapter": "@incollection",
-        "thesis": "@phdthesis",
-        "webpage": "@misc",
-    }
-    bib_entry_type = bib_map.get(bib_type, "@misc")
-    
-    bib_fields = []
-    
-    # Title
-    if "title" in csl_data:
-        bib_fields.append(f"  title = {{{csl_data['title']}}}")
-        
-    # Author
-    if "author" in csl_data:
-        authors = " and ".join([f"{a.get('family', '')}, {a.get('given', '')}" for a in csl_data["author"]])
-        bib_fields.append(f"  author = {{{authors}}}")
-        
-    # Year
-    if "issued" in csl_data and "date-parts" in csl_data["issued"]:
-        year = csl_data["issued"]["date-parts"][0][0]
-        bib_fields.append(f"  year = {{{year}}}")
-        
-    # Publisher
-    if "publisher" in csl_data:
-        bib_fields.append(f"  publisher = {{{csl_data['publisher']}}}")
-        
-    # Journal
-    if "container-title" in csl_data:
-        bib_fields.append(f"  journal = {{{csl_data['container-title']}}}")
-        
-    # Volume, Number, Pages
-    if "volume" in csl_data:
-        bib_fields.append(f"  volume = {{{csl_data['volume']}}}")
-    if "issue" in csl_data:
-        bib_fields.append(f"  number = {{{csl_data['issue']}}}")
-    if "page" in csl_data:
-        bib_fields.append(f"  pages = {{{csl_data['page']}}}")
-        
-    # URL and DOI
-    if "URL" in csl_data:
-        bib_fields.append(f"  url = {{{csl_data['URL']}}}")
-    if "DOI" in csl_data:
-        bib_fields.append(f"  doi = {{{csl_data['DOI']}}}")
-        
-    bib_entry = f"{bib_entry_type}{{{bib_id},\n" + ",\n".join(bib_fields) + "\n}"
-    
-    return bib_entry

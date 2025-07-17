@@ -1,172 +1,166 @@
-# Citation Extractor
+<p align="center">
+  <img src="https://raw.githubusercontent.com/jgm/citeproc/master/img/citeproc-logo.png" alt="Citeproc Logo" width="150">
+</p>
 
-A powerful, LLM-driven tool to automatically extract citation information from PDFs, web pages, and local media files. It generates structured citation data in CSL-JSON format and can format bibliographies using various citation styles.
+<h1 align="center">Citation Extractor</h1>
+
+<p align="center">
+  <strong>Effortlessly extract structured citation data from any source.</strong>
+  <br>
+  <a href="#features">Features</a> •
+  <a href="#installation">Installation</a> •
+  <a href="#usage">Usage</a> •
+  <a href="#contributing">Contributing</a>
+</p>
+
+<p align="center">
+  <img src="https://img.shields.io/badge/python-3.12+-blue.svg" alt="Python 3.12+">
+  <img src="https://img.shields.io/badge/license-MIT-green.svg" alt="License: MIT">
+  <a href="https://github.com/your-username/citation/issues">
+    <img src="https://img.shields.io/github/issues/your-username/citation" alt="GitHub issues">
+  </a>
+  <a href="https://github.com/your-username/citation/pulls">
+    <img src="https://img.shields.io/github/issues-pr/your-username/citation" alt="GitHub pull requests">
+  </a>
+</p>
+
+---
+
+**Citation Extractor** is a powerful, AI-driven tool designed to automatically pull accurate, structured citation information from a wide variety of sources, including academic papers, websites, and even local media files. By leveraging Large Language Models (LLMs) and intelligent document analysis, it saves you hours of manual work and ensures your references are perfectly formatted.
+
+Whether you're a researcher, student, or developer, this tool provides a seamless bridge from raw content to clean, CSL-JSON formatted citations.
 
 ## Features
 
--   **Multi-Format Support**: Extracts data from PDF documents, web URLs, and local video/audio files.
--   **Intelligent PDF Processing**:
-    -   Automatically determines document type (book, thesis, journal article, book chapter).
-    -   Uses `OCRmyPDF` to make non-searchable PDFs readable.
-    -   Efficiently processes only relevant page ranges (e.g., the first few and last few pages) to speed up extraction.
--   **Advanced Web Scraping**:
-    -   Uses a multi-layered approach (Trafilatura, Newspaper3k, BeautifulSoup) for robust content extraction from URLs.
--   **LLM-Powered Extraction**:
-    -   Leverages Large Language Models via DSPy for accurate metadata extraction.
-    -   Supports multiple LLM backends, including local models with Ollama and cloud APIs like Google Gemini.
--   **Formatted Output**:
-    -   Generates CSL-JSON and YAML files.
-    -   Prints formatted bibliographies and in-text citations to the console using `citeproc-py`.
--   **User-Friendly**:
-    -   Simple command-line interface (CLI).
-    -   Verbose mode for detailed logging and debugging.
-    -   Python API for integration into other projects.
+- **Universal Input Support**:
+  - **PDFs**: Automatically determines if the document is a book, thesis, journal article, or book chapter.
+  - **Web URLs**: Intelligently extracts metadata from articles and webpages.
+  - **Media Files**: Pulls metadata from local video and audio files (`.mp4`, `.mp3`, etc.).
 
-## How It Works
+- **Intelligent PDF Processing**:
+  - **Smart OCR**: Uses `ocrmypdf` to make scanned PDFs searchable.
+  - **Efficient Analysis**: Processes only the most relevant pages (e.g., first 5, last 3) to speed up extraction without sacrificing accuracy.
+  - **Automatic Type Detection**: Accurately classifies your documents to apply the correct extraction logic.
 
-The tool automatically detects the input type and applies a specialized workflow:
+- **AI-Powered Extraction**:
+  - **Flexible LLM Backend**: Powered by **DSPy**, it supports various LLMs including local models via **Ollama** (`qwen3`, `llama3`) and powerful cloud APIs like **Google Gemini**.
+  - **Iterative Deep-Scan**: For complex documents, the tool iteratively scans pages and accumulates text, stopping as soon as all essential citation fields are found.
+  - **Web Content Fallback**: Uses `crawl4ai` to deeply analyze web pages when initial metadata extraction is insufficient.
 
-1.  **PDFs**: The PDF is analyzed, and a temporary, smaller PDF containing only the most relevant pages is created. If necessary, OCR is applied. Relevant text is extracted and passed to an LLM, which identifies and extracts citation metadata (title, author, year, etc.) based on the detected document type.
-2.  **URLs**: The content of the URL is fetched, and a series of extraction tools are used to pull out metadata. The publisher is inferred from the domain if not explicitly found.
-3.  **Media Files**: For local audio or video files, `pymediainfo` is used to extract embedded metadata like title, author, and duration.
+- **High-Quality Formatted Output**:
+  - **CSL-JSON Standard**: Generates clean, standard-compliant CSL-JSON files, ready for any reference manager.
+  - **Styled Bibliographies**: Instantly format citations in different styles (e.g., Chicago, APA) using the `citeproc-py` library.
 
-The extracted information is then normalized, saved to `.json` and `.yaml` files, and displayed in the console as a formatted citation.
+- **Developer-Friendly**:
+  - **Robust CLI**: A powerful command-line interface with comprehensive options for power users.
+  - **Simple Python API**: Easily integrate citation extraction into your own Python applications.
 
 ## Installation
 
 ### Prerequisites
 
-This tool relies on several external dependencies that must be installed on your system:
+Make sure you have the following dependencies installed on your system:
 
--   **Python 3.12+**
--   **Tesseract OCR**: Required by `OCRmyPDF`.
--   **MediaInfo**: Required by `pymediainfo` for media file analysis.
--   **Ollama** (Optional): For running local LLMs.
+- **Python 3.12+**
+- **Tesseract OCR**: For making PDFs searchable.
+- **MediaInfo**: For extracting metadata from media files.
+- **Ollama** (Optional): For running local LLMs.
 
-You can install these on macOS using [Homebrew](https://brew.sh/):
+**On Ubuntu/Debian:**
+```bash
+sudo apt-get update
+sudo apt-get install -y tesseract-ocr mediainfo
+# Install Ollama by following the official instructions at https://ollama.ai/
+```
 
+**On macOS:**
 ```bash
 brew install tesseract mediainfo ollama
 ```
 
-Or on Debian/Ubuntu:
+### Project Setup
 
-```bash
-sudo apt-get update
-sudo apt-get install -y tesseract-ocr mediainfo
-# Follow instructions on ollama.ai to install Ollama
-```
+This project uses [Rye](https://rye-up.com/) for streamlined dependency and environment management.
 
-### Application Installation
+1.  **Install Rye:**
+    ```bash
+    curl -sSf https://rye-up.com/get | bash
+    ```
 
-It is recommended to use [Rye](https://rye-up.com/) for managing Python projects and dependencies.
-
-```bash
-rye sync
-```
-
-This will create a virtual environment and install all necessary Python packages.
+2.  **Sync Dependencies:**
+    Clone the repository and run `rye sync` to install all required Python packages in a virtual environment.
+    ```bash
+    git clone https://github.com/your-username/citation.git
+    cd citation
+    rye sync
+    ```
 
 ## Usage
 
-### Command-Line Interface
+### From the Command Line
 
-The `citation` command is the primary way to use the tool.
-
-**Basic Usage:**
+The CLI automatically detects the input type (PDF, URL, or media file).
 
 ```bash
-# Extract from a PDF
-citation /path/to/your/document.pdf
+# Extract from a PDF file
+rye run python -m citation.cli "path/to/your/document.pdf"
 
-# Extract from a URL
-citation "https://www.example.com/article"
+# Extract from a website URL
+rye run python -m citation.cli "https://www.nature.com/articles/s41586-023-06627-7"
 
 # Extract from a local video file
-citation /path/to/your/video.mp4
+rye run python -m citation.cli "path/to/your/lecture.mp4"
 ```
 
-**Specifying an LLM:**
+#### Key CLI Options:
 
-You can specify which LLM to use with the `--llm` flag. See [LLM_USAGE_EXAMPLES.md](LLM_USAGE_EXAMPLES.md) for more details.
+| Flag                 | Alias | Description                                                 | Default                            |
+| -------------------- | ----- | ----------------------------------------------------------- | ---------------------------------- |
+| `--output-dir`       | `-o`  | Directory to save citation files.                           | `example/`                         |
+| `--type`             | `-t`  | Override automatic document type detection.                 | `auto`                             |
+| `--page-range`       | `-p`  | Page range for PDF processing (e.g., "1-5, -3").            | `"1-5, -3"`                        |
+| `--lang`             | `-l`  | Language for OCR.                                           | `eng+chi_sim+chi_tra`              |
+| `--llm`              |       | LLM to use (e.g., `ollama/qwen3`, `gemini/gemini-1.5-flash`). | `ollama/qwen3`                     |
+| `--citation-style`   | `-cs` | CSL style for formatted output.                             | `chicago-author-date`              |
+| `--verbose`          | `-v`  | Enable detailed logging.                                    | `False`                            |
 
-```bash
-# Use a local Llama3 model via Ollama
-citation --llm ollama/llama3 /path/to/document.pdf
+### As a Python Library
 
-# Use Google Gemini
-export GOOGLE_API_KEY="YOUR_API_KEY"
-citation --llm gemini/gemini-1.5-flash /path/to/document.pdf
-```
-
-**Other Options:**
-
--   `-o, --output-dir`: Specify a directory to save citation files (default: `example/`).
--   `-t, --type`: Manually override the document type for PDFs (`book`, `thesis`, `journal`, `bookchapter`).
--   `-p, --page-range`: Specify page range for OCR (e.g., "1-5, -3").
--   `-l, --lang`: Set language for OCR (e.g., `eng+fra`).
--   `-cs, --citation-style`: Choose a CSL style for formatted output (e.g., `chicago-author-date`).
--   `-v, --verbose`: Enable detailed logging.
-
-### Python API
-
-You can also use the `CitationExtractor` class in your own Python scripts.
+Integrate citation extraction directly into your projects with the `CitationExtractor`.
 
 ```python
 from citation.main import CitationExtractor
+from citation.citation_style import format_bibliography
 
-# Initialize the extractor (can specify an LLM model)
+# Initialize the extractor with your chosen LLM
 extractor = CitationExtractor(llm_model="ollama/qwen3")
 
-# Extract from a PDF
-pdf_citation = extractor.extract_from_pdf("path/to/document.pdf")
-print(pdf_citation)
+# Extract citation data from a source
+csl_data = extractor.extract_citation("path/to/document.pdf")
 
-# Extract from a URL
-url_citation = extractor.extract_from_url("https://example.com/article")
-print(url_citation)
-
-# Extract from a media file
-media_citation = extractor.extract_from_media_file("path/to/video.mp4")
-print(media_citation)
+if csl_data:
+    # Format the bibliography
+    bibliography, in_text = format_bibliography([csl_data], "chicago-author-date")
+    
+    print("--- Formatted Bibliography ---")
+    print(bibliography)
+    
+    print("\n--- In-Text Citation ---")
+    print(in_text)
 ```
 
-## Output Format
+## Testing
 
-For each input, the tool generates a `.json` and a `.yaml` file containing the extracted citation data. The output is structured to be compatible with CSL-JSON format. It also prints a formatted bibliography to the console.
+To ensure everything is working correctly, run the test suite using `pytest`:
 
-**Example Console Output:**
-
-```
-==================================================
-FORMATTED BIBLIOGRAPHY (chicago-author-date)
-==================================================
-Last, First. 2024. “Title of Article.” *Journal Name* 1 (2): 1–10.
-
-==================================================
-IN-TEXT CITATION
-==================================================
-(Last 2024)
+```bash
+rye run pytest
 ```
 
-**Example (`.yaml`):**
-
-```yaml
-URL: https://www.example.com
-accessed:
-  date-parts:
-  - - 2025
-    - 7
-    - 16
-id: example
-publisher: Example
-title: Example Domain
-type: webpage
-```
 ## Contributing
 
-Contributions are welcome! Please feel free to submit a pull request.
+Contributions are welcome! Whether it's a bug report, feature request, or a pull request, your input is valued. Please feel free to open an issue or submit a PR.
 
 ## License
 
-This project is licensed under the MIT License.
+This project is licensed under the MIT License. See the [LICENSE](LICENSE) file for details.

@@ -1,7 +1,7 @@
 import os
 import pytest
 from citation import CitationExtractor
-from citation.utils import guess_title_from_filename, format_author_csl
+from citation.utils import format_author_csl
 
 TEST_PDF_DIR = "examples"
 TEST_URL = "https://www.example.com"
@@ -33,18 +33,7 @@ def test_invalid_input():
     citation_info = extractor.extract_citation("invalid input")
     assert citation_info is None, "Should return None for invalid input"
 
-def test_filename_guessing():
-    """Test filename title guessing functionality."""
-    # Test good filenames
-    assert guess_title_from_filename("paper_machine_learning_final.pdf") == "machine learning"
-    assert guess_title_from_filename("draft_neural_networks_v2.pdf") == "neural networks"
-    assert guess_title_from_filename("2024_deep_learning_submitted.pdf") == "deep learning"
-    assert guess_title_from_filename("article_natural_language_processing.pdf") == "natural language processing"
-    
-    # Test bad filenames
-    assert guess_title_from_filename("abc.pdf") is None
-    assert guess_title_from_filename("test.pdf") == "test"
-    assert guess_title_from_filename("document.pdf") is None
+
 
 def test_document_type_override():
     """Test document type override functionality."""

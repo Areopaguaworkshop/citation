@@ -22,7 +22,6 @@ from .utils import (
     extract_pdf_text,
     determine_url_type,
     save_citation,
-    guess_title_from_filename,
     to_csl_json,
     create_subset_pdf,
 )
@@ -423,8 +422,22 @@ class CitationExtractor:
             logging.error(f"Error extracting media metadata: {e}")
             return {}
 
+    def _analyze_pdf_structure(self, pdf_path: str) -> tuple:
+        """Analyze PDF structure using PyMuPDF."""
+        try:
+            doc = fitz.open(pdf_path)
+            num_pages = doc.page_count
+            filename = os.path.basename(pdf_path)
 
-def get_pdf_citation_text(input_pdf_path, output_dir="processed_pdfs", lang="eng"):
-    """Legacy function for backward compatibility."""
-    extractor = CitationExtractor()
-    return extractor.extract_from_pdf(input_pdf_path, output_dir)
+            # Extract basic metadata
+            metadata = doc.metadata
+            logging.info(f"PDF metadata: {metadata}")
+
+            doc.close()
+            return num_pages, filename
+        except Exception as e:
+            logging.error(f"Error analyzing PDF structure: {e}")
+            return 0, ""
+
+
+
