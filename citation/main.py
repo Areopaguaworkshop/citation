@@ -1,18 +1,16 @@
 import trafilatura
-from newspaper import Article
 import os
 import subprocess
 import logging
-import trafilatura
-from newspaper import Article
 import json
 import fitz  # PyMuPDF
 import requests
-from bs4 import BeautifulSoup
 from datetime import datetime
 from typing import Dict, Optional
 import tempfile
 from pymediainfo import MediaInfo
+import asyncio
+from crawl4ai import AsyncWebCrawler
 
 from .utils import (
     clean_url,
@@ -30,6 +28,7 @@ from .utils import (
 )
 from .type_judge import determine_document_type
 from .model import CitationLLM
+from .search import search_for_missing_info
 
 # Configure logging
 logging.basicConfig(
@@ -56,7 +55,7 @@ def _has_all_essential_fields(citation_info: Dict, doc_type: str) -> bool:
     if doc_type == "journal":
         # For journals, we also need at least a volume or an issue number.
         return "volume" in citation_info or "issue" in citation_info
-    
+
     return True
 
 
@@ -141,7 +140,7 @@ class CitationExtractor:
             doc = fitz.open(searchable_pdf_path)
             temp_num_pages = doc.page_count
             doc.close()
-            
+
             if doc_type_override:
                 doc_type = doc_type_override
                 print(f"📋 Document type overridden to: {doc_type}")
@@ -160,7 +159,7 @@ class CitationExtractor:
                     second_page_text = extract_pdf_text(searchable_pdf_path, 1) if doc.page_count > 1 else ""
                     last_page_text = extract_pdf_text(searchable_pdf_path, doc.page_count - 1)
                     second_to_last_page_text = extract_pdf_text(searchable_pdf_path, doc.page_count - 2) if doc.page_count > 1 else ""
-                    
+
                     page_number_info = self.llm.extract_page_numbers_for_journal_chapter(
                         first_page_text, second_page_text, last_page_text, second_to_last_page_text
                     )
@@ -173,26 +172,49 @@ class CitationExtractor:
             # Step 6: Iterative LLM Extraction for all other fields
             print(f"🤖 Step 6: Starting iterative LLM extraction for {doc_type}...")
             accumulated_text = ""
-            
+
             doc = fitz.open(searchable_pdf_path)
             for i in range(doc.page_count):
                 print(f"  - Processing page {i + 1} of {doc.page_count}...")
                 page_text = extract_pdf_text(searchable_pdf_path, page_number=i)
                 accumulated_text += page_text + "\n\n"
-                
+
                 # Call LLM with the accumulated text
                 current_citation = self.llm.extract_citation_from_text(accumulated_text, doc_type)
-                
+
                 # Merge new findings into our main citation_info
                 for key, value in current_citation.items():
                     if key not in citation_info:
                         citation_info[key] = value
-                
+
                 # Check for early exit
                 if _has_all_essential_fields(citation_info, doc_type):
                     print(f"✅ All essential fields for '{doc_type}' found. Stopping early.")
                     break
             doc.close()
+
+            if not _has_all_essential_fields(citation_info, doc_type):
+                print(f"⚠️ Essential fields for '{doc_type}' are missing. Attempting online search...")
+                if citation_info.get("title") and citation_info.get("author"):
+                    found_info = search_for_missing_info(
+                        title=citation_info["title"],
+                        author=citation_info["author"],
+                        llm=self.llm,
+                        doc_type=doc_type,
+                        year=citation_info.get("year"),
+                        publisher=citation_info.get("publisher"),
+                        page=citation_info.get("page_numbers"),
+                    )
+                    if found_info:
+                        print(f"🔍 Found additional info online: {found_info}")
+                        # Merge the found info, giving preference to existing data
+                        for key, value in found_info.items():
+                            if key not in citation_info:
+                                citation_info[key] = value
+                    else:
+                        print("❌ Online search did not yield new information.")
+                else:
+                    print("⚠️ Cannot perform online search without a title and author.")
 
             if not citation_info:
                 print("❌ Failed to extract any citation information with LLM.")
@@ -292,33 +314,25 @@ class CitationExtractor:
             url_type = determine_url_type(url)
             print(f"📋 URL type: {url_type}")
 
-            # Step 2: Extract using anystyle for text-based content
+            # Step 2: Extract content based on URL type
             if url_type == "text":
-                print("🔍 Step 2: Extracting with trafilatura...")
-                citation_info = self._extract_url_with_trafilatura(url)
+                print("🔍 Step 2: Extracting from text-based URL...")
+                citation_info = self._extract_from_text_url(url)
             else:
-                # Step 3: Extract metadata for video/audio
                 print("🔍 Step 2: Extracting media metadata...")
                 citation_info = self._extract_media_metadata(url)
 
-            # Step 3: If essential fields are still missing, try searching online
-            if not citation_info.get("title"):
-                print("⚠️ Title is missing.")
-
+            # Step 3: Finalize and save citation
             if citation_info:
                 citation_info["url"] = url
                 citation_info["date_accessed"] = datetime.now().strftime("%Y-%m-%d")
-                
-                # Determine CSL type based on content
-                csl_type = "webpage"
-                if url_type == "media":
-                    # A more robust check could be added here if needed
-                    csl_type = "motion_picture" 
+
+                csl_type = "webpage" if url_type == "text" else "motion_picture"
 
                 print("💾 Step 4: Converting to CSL JSON and saving...")
                 csl_data = to_csl_json(citation_info, csl_type)
                 save_citation(csl_data, output_dir)
-                
+
                 print("✅ URL citation extraction completed successfully!")
                 return csl_data
             else:
@@ -329,34 +343,15 @@ class CitationExtractor:
             logging.error(f"Error extracting citation from URL: {e}")
             return None
 
-    def _analyze_pdf_structure(self, pdf_path: str) -> tuple:
-        """Analyze PDF structure using PyMuPDF."""
+    def _extract_from_text_url(self, url: str) -> Dict:
+        """Extracts citation from a text-based URL, using crawl4ai as a fallback."""
+        citation_info = {}
+        essential_fields = ["title", "author", "date", "container-title"]
+
+        # Step 1: Initial extraction with Trafilatura
         try:
-            doc = fitz.open(pdf_path)
-            num_pages = doc.page_count
-            filename = os.path.basename(pdf_path)
-
-            # Extract basic metadata
-            metadata = doc.metadata
-            logging.info(f"PDF metadata: {metadata}")
-
-            doc.close()
-            return num_pages, filename
-        except Exception as e:
-            logging.error(f"Error analyzing PDF structure: {e}")
-            return 0, ""
-
-    def _extract_url_with_trafilatura(self, url: str) -> Dict:
-        """Extract citation from URL using trafilatura and newspaper3k."""
-        try:
-            # Clean the URL
-            cleaned_url = clean_url(url)
-            print(f"🔧 URL cleaned: {cleaned_url}")
-
-            citation_info = {}
-
-            # Step 1: Try trafilatura
             print("🔍 Step 1: Extracting with trafilatura...")
+            cleaned_url = clean_url(url)
             downloaded = trafilatura.fetch_url(cleaned_url)
             if downloaded:
                 metadata = trafilatura.extract_metadata(downloaded)
@@ -368,79 +363,51 @@ class CitationExtractor:
                     if metadata.date:
                         citation_info["date"] = metadata.date
                     if metadata.sitename:
-                        citation_info["publisher"] = metadata.sitename
-
-                    print(
-                        f"📝 Trafilatura extraction: {len(citation_info)} fields found"
-                    )
-                    logging.info(f"Trafilatura metadata: {citation_info}")
-
-            # Step 2: Fallback to newspaper3k if needed
-            if not citation_info.get("title") or not citation_info.get("author"):
-                print("🔍 Step 2: Trying newspaper3k as fallback...")
-                try:
-                    article = Article(cleaned_url)
-                    article.download()
-                    article.parse()
-
-                    if not citation_info.get("title") and article.title:
-                        citation_info["title"] = article.title
-                        print(f"📝 Newspaper3k extracted title: {article.title}")
-
-                    if not citation_info.get("author") and article.authors:
-                        authors_str = ", ".join(article.authors)
-                        citation_info["author"] = authors_str
-                        print(f"👥 Newspaper3k extracted authors: {article.authors}")
-
-                    if not citation_info.get("date") and article.publish_date:
-                        citation_info["date"] = article.publish_date.strftime(
-                            "%Y-%m-%d"
-                        )
-                        print(f"📅 Newspaper3k extracted date: {article.publish_date}")
-
-                except Exception as e:
-                    print(f"⚠️ Newspaper3k failed: {e}")
-                    logging.error(f"Newspaper3k error: {e}")
-
-            # Step 3: Fallback to HTML meta tags if still missing required fields
-            if not citation_info.get("title") or not citation_info.get("author"):
-                print("🔍 Step 3: Trying HTML meta tags as fallback...")
-                try:
-                    response = requests.get(cleaned_url, timeout=10)
-                    soup = BeautifulSoup(response.content, "html.parser")
-
-                    # Extract title from meta tags or page title
-                    if not citation_info.get("title"):
-                        title_tag = soup.find("title")
-                        if title_tag:
-                            citation_info["title"] = title_tag.get_text().strip()
-                            print(f"📝 HTML title extracted: {citation_info['title']}")
-
-                    # Extract author from meta tags
-                    if not citation_info.get("author"):
-                        author_meta = soup.find("meta", attrs={"name": "author"})
-                        if author_meta and author_meta.get("content"):
-                            citation_info["author"] = author_meta.get("content")
-                            print(
-                                f"👤 HTML meta author extracted: {citation_info['author']}"
-                            )
-
-                except Exception as e:
-                    print(f"⚠️ HTML meta extraction failed: {e}")
-                    logging.error(f"HTML meta extraction error: {e}")
-
-            # Step 4: Extract publisher from domain if not provided
-            if not citation_info.get("publisher"):
-                domain_publisher = extract_publisher_from_domain(cleaned_url)
-                if domain_publisher:
-                    citation_info["publisher"] = domain_publisher
-                    print(f"🏢 Publisher derived from domain: {domain_publisher}")
-
-            return citation_info
-
+                        citation_info["container-title"] = metadata.sitename
+                    print(f"📝 Trafilatura extraction: {len(citation_info)} fields found")
         except Exception as e:
-            logging.error(f"Error with trafilatura: {e}")
-            return {}
+            logging.warning(f"Trafilatura failed: {e}")
+
+        # Step 2: Check for missing fields and use crawl4ai if necessary
+        missing_fields = [field for field in essential_fields if field not in citation_info]
+        if missing_fields:
+            print(f"⚠️ Missing essential fields: {', '.join(missing_fields)}. Using crawl4ai as fallback...")
+            try:
+                markdown_content = asyncio.run(self._extract_with_crawl4ai(url))
+                if markdown_content:
+                    print("🤖 Step 2a: Extracting missing info with LLM from crawled content...")
+                    llm_extracted_info = self.llm.extract_citation_from_web_markdown(markdown_content)
+                    
+                    # Merge missing fields
+                    for field in missing_fields:
+                        if field in llm_extracted_info and field not in citation_info:
+                            citation_info[field] = llm_extracted_info[field]
+                            print(f"✅ Found missing '{field}' with crawl4ai+LLM.")
+                else:
+                    print("❌ crawl4ai did not return any content.")
+            except Exception as e:
+                logging.error(f"crawl4ai fallback failed: {e}")
+
+        # Step 3: Final check and logging
+        final_missing = [field for field in essential_fields if field not in citation_info]
+        if final_missing:
+            logging.warning(f"Could not extract the following fields: {', '.join(final_missing)}")
+        
+        # Step 4: Extract container-title from domain if not provided
+        if "container-title" not in citation_info:
+            domain_publisher = extract_publisher_from_domain(url)
+            if domain_publisher:
+                citation_info["container-title"] = domain_publisher
+                print(f"🏢 container-title derived from domain: {domain_publisher}")
+
+        return citation_info
+
+    async def _extract_with_crawl4ai(self, url: str) -> str:
+        """Crawls a single URL using crawl4ai and returns its markdown content."""
+        print("🕷️ Running crawl4ai...")
+        async with AsyncWebCrawler() as crawler:
+            result = await crawler.arun(url=url)
+            return result.markdown if result else ""
 
     def _extract_media_metadata(self, url: str) -> Dict:
         """Extract metadata from media URLs (placeholder for future implementation)."""
@@ -450,7 +417,7 @@ class CitationExtractor:
             return {
                 "title": "Media content from URL",
                 "author": "Unknown",
-                "publisher": extract_publisher_from_domain(url),
+                "container-title": extract_publisher_from_domain(url),
             }
         except Exception as e:
             logging.error(f"Error extracting media metadata: {e}")

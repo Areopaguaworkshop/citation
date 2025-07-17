@@ -5,12 +5,12 @@
       [
         2025,
         7,
-        16
+        17
       ]
     ]
   },
   "title": "Example Domain",
-  "publisher": "Example",
+  "container-title": "Example",
   "URL": "https://www.example.com",
   "id": "example"
 }

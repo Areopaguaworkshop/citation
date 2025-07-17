@@ -143,7 +143,13 @@ class CitationLLM:
             logging.error(f"Error with book chapter LLM extraction: {e}")
             return {}
 
-    def extract_page_numbers_for_journal_chapter(self, first_page_text: str, second_page_text: str, last_page_text: str, second_to_last_page_text: str) -> Dict:
+    def extract_page_numbers_for_journal_chapter(
+        self,
+        first_page_text: str,
+        second_page_text: str,
+        last_page_text: str,
+        second_to_last_page_text: str,
+    ) -> Dict:
         """Extract page numbers for journal/bookchapter using specific logic."""
         try:
             signature = dspy.Signature(
@@ -161,13 +167,13 @@ class CitationLLM:
                 first_page_text=first_page_text,
                 second_page_text=second_page_text,
                 last_page_text=last_page_text,
-                second_to_last_page_text=second_to_last_page_text
+                second_to_last_page_text=second_to_last_page_text,
             )
 
             citation_info = {}
-            if result.page_numbers and result.page_numbers.lower() != 'unknown':
-                citation_info['page_numbers'] = result.page_numbers.strip()
-            
+            if result.page_numbers and result.page_numbers.lower() != "unknown":
+                citation_info["page_numbers"] = result.page_numbers.strip()
+
             logging.info(f"Page number LLM extraction result: {citation_info}")
             return citation_info
 
@@ -192,3 +198,58 @@ class CitationLLM:
             logging.warning(f"Unknown document type: {doc_type}, using book extraction")
             return self.extract_book_citation(truncated_text)
 
+    def extract_citation_from_web_markdown(self, markdown_text: str) -> Dict:
+        """Extracts citation fields from the markdown content of a webpage."""
+        try:
+            signature = dspy.Signature(
+                "markdown_content -> title, author, date, container_title",
+                "Analyze the markdown content of a webpage to extract citation information. "
+                "Pay close attention to the main title, author by lines, and publication dates in first 600 words. "
+                "The 'container-title' is the name of the overall website. "
+                "Also, look for explicit citation hints like 'how to cite', '引用', '引用格式', '格式', '格式如下', '凡例'. "
+                "Return 'Unknown' for any fields that cannot be found.",
+            )
+
+            predictor = dspy.Predict(signature)
+            result = predictor(markdown_content=self._truncate_text(markdown_text))
+
+            citation_info = {}
+            for key, value in result.items():
+                if value and value.strip() and value.strip().lower() != "unknown":
+                    citation_info[key] = value.strip()
+
+            logging.info(f"LLM extraction from web markdown result: {citation_info}")
+            return citation_info
+
+        except Exception as e:
+            logging.error(f"Error with web markdown LLM extraction: {e}")
+            return {}
+
+    def parse_search_results(self, search_response: str) -> Dict:
+        """Parse the response from a search API to extract citation fields."""
+        try:
+            signature = dspy.Signature(
+                "search_results -> container_title, editor, publisher, year, volume, issue, page_numbers, doi",
+                "Parse the provided search engine results to find missing citation information for a book chapter or journal article. "
+                "Extract fields like the book/journal title (as container-title), editor, publisher, year, etc. "
+                "Return 'Unknown' for any fields that cannot be found.",
+            )
+
+            predictor = dspy.Predict(signature)
+            result = predictor(search_results=search_response)
+
+            # Convert result to dictionary
+            parsed_info = {}
+            for key, value in result.items():
+                if value and value.strip() and value.strip().lower() != "unknown":
+                    # Handle key conversion for CSL compatibility
+                    if key == "container_title":
+                        parsed_info["container-title"] = value.strip()
+                    else:
+                        parsed_info[key] = value.strip()
+
+            logging.info(f"Parsed search results: {parsed_info}")
+            return parsed_info
+        except Exception as e:
+            logging.error(f"Error parsing search results with LLM: {e}")
+            return {}
