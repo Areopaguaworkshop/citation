@@ -6,7 +6,8 @@ dist/
 wheels/
 *.egg-info
 test/**/*
-GEMINI.md
 .env
 # venv
 .venv
+## OTher files
+./GEMINI.md

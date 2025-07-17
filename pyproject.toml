@@ -1,7 +1,7 @@
 [project]
 name = "citation"
-version = "0.10.02"
-description = "Extracts citations from PDF files and URLs in Chicago Author-Date style."
+version = "0.10.00"
+description = "Extracts citations from PDF, URLs and local media files in CSL-JSON. "
 authors = [{ name = "ajia", email = "yyjfwoaini@gmail.com" }]
 dependencies = [
   "ocrmypdf>=16.10.4",
@@ -35,4 +35,5 @@ dev-dependencies = ["pytest>=7.0.0", "pytest-cov>=2.12.1"]
 allow-direct-references = true
 
 [tool.hatch.build.targets.wheel]
+include = ["/citation"]
 packages = ["citation"]
