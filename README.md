@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="https://raw.githubusercontent.com/jgm/citeproc/master/img/citeproc-logo.png" alt="Citeproc Logo" width="150">
+  <img src="./Citation-Extractor-logo.PNG" alt="Citation Extractor Logo" width="150">
 </p>
 
 <h1 align="center">Citation Extractor</h1>
