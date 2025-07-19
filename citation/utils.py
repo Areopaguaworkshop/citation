@@ -453,15 +453,45 @@ def to_csl_json(data: Dict, doc_type: str) -> Dict:
     # 5. Generate ID
     id_parts = []
     if csl.get("author"):
-        id_parts.append(csl["author"][0].get("family", "").lower())
+        author = csl["author"][0]
+        # Use pinyin version if available
+        family_name = author.get("family", "")
+        given_name = author.get("given", "")
+        if family_name:
+            id_parts.append(family_name)
+        if given_name:
+            id_parts.append(given_name)
+
     if csl.get("issued"):
         id_parts.append(str(csl["issued"]["date-parts"][0][0]))
+
     if csl.get("title"):
-        id_parts.append(csl["title"].split()[0].lower())
-    
-    csl["id"] = "-".join(p for p in id_parts if p)
-    if not csl["id"]:
-        csl["id"] = "citation-" + os.urandom(4).hex() # Fallback ID
+        title = csl["title"]
+        # Shorten title if it's too long
+        if len(title) > 50:
+            title = " ".join(title.split()[:5]) # take first 5 words
+        id_parts.append(title)
+
+    if csl.get("publisher"):
+        id_parts.append(csl.get("publisher"))
+
+    # Function to clean each part for the ID
+    def clean_for_id(part):
+        # Remove non-alphanumeric characters except for spaces and hyphens
+        part = str(part) # Ensure part is a string
+        part = re.sub(r'[^\w\s-]', '', part).strip()
+        # Replace spaces and hyphens with a single underscore
+        part = re.sub(r'[\s-]+', '_', part)
+        return part
+
+    # Clean and join the parts
+    cleaned_parts = [clean_for_id(p) for p in id_parts if p]
+    base_id = "_".join(cleaned_parts)
+
+    if not base_id:
+        csl["id"] = "citation-" + os.urandom(4).hex() + ".md" # Fallback ID
+    else:
+        csl["id"] = base_id + ".md"
 
     return csl
 
