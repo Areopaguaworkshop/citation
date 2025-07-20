@@ -152,16 +152,18 @@ class CitationExtractor:
                 print(f"🤖 Step 5: Specialized page number extraction for {doc_type}...")
                 doc = fitz.open(searchable_pdf_path)
                 if doc.page_count > 0:
-                    # Use improved pattern-based page extraction
+                    first_page_text = extract_pdf_text(searchable_pdf_path, 0)
+                    second_page_text = extract_pdf_text(searchable_pdf_path, 1) if doc.page_count > 1 else ""
+                    last_page_text = extract_pdf_text(searchable_pdf_path, doc.page_count - 1)
+                    second_to_last_page_text = extract_pdf_text(searchable_pdf_path, doc.page_count - 2) if doc.page_count > 1 else ""
+
                     page_number_info = self.llm.extract_page_numbers_for_journal_chapter(
-                        searchable_pdf_path, page_range
+                        first_page_text, second_page_text, last_page_text, second_to_last_page_text
                     )
                     if "page_numbers" in page_number_info:
                         citation_info["page_numbers"] = page_number_info["page_numbers"]
-                        print(f"📄 Page numbers extracted by improved method: {citation_info['page_numbers']}")
+                        print(f"📄 Page numbers extracted by LLM: {citation_info['page_numbers']}")
                 doc.close()
-
-
 
 
             # Step 6: Iterative LLM Extraction for all other fields

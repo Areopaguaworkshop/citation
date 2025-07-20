@@ -154,7 +154,7 @@ class CitationExtractor:
                 if doc.page_count > 0:
                     # Use improved pattern-based page extraction
                     page_number_info = self.llm.extract_page_numbers_for_journal_chapter(
-                        searchable_pdf_path, page_range
+                        searchable_pdf_path
                     )
                     if "page_numbers" in page_number_info:
                         citation_info["page_numbers"] = page_number_info["page_numbers"]

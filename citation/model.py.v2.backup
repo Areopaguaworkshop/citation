@@ -121,96 +121,15 @@ class ImprovedPageNumberExtractor:
         
         return position_texts
     
-    def find_continuous_page_sequence_with_range(self, pdf_path: str, page_range: str, total_pdf_pages: int) -> Dict[int, int]:
-        """
-        Find continuous page number sequences respecting the page_range structure.
-        
-        Args:
-            pdf_path: Path to the PDF file
-            page_range: Page range string (e.g., "1-5, -3")
-            total_pdf_pages: Total number of pages in the PDF
-            
-        Returns:
-            Dict mapping PDF page indices to actual page numbers
-        """
-        from .utils import parse_page_range
-        
+    def find_continuous_page_sequence(self, pdf_path: str, max_pages: int = 5) -> Dict[int, int]:
+        """Find continuous page number sequences with consistent positioning"""
         doc = fitz.open(pdf_path)
+        total_pages = min(doc.page_count, max_pages)
         
-        # Parse the page range into actual page indices
-        pages_to_analyze = parse_page_range(page_range, total_pdf_pages)
-        if not pages_to_analyze:
-            self.logger.warning(f"Invalid page range: {page_range}")
-            doc.close()
-            return {}
-        
-        # Separate first part and last part based on the original page range
-        first_part_pages = []
-        last_part_pages = []
-        
-        # Parse the page_range string to identify first and last parts
-        parts = [part.strip() for part in page_range.split(',') if part.strip()]
-        
-        for part in parts:
-            if part.startswith('-'):
-                # Last N pages
-                try:
-                    last_n = abs(int(part))
-                    last_part_indices = list(range(max(0, total_pdf_pages - last_n), total_pdf_pages))
-                    # Convert to 1-based and filter with pages_to_analyze
-                    last_part_pages.extend([i for i in last_part_indices if (i + 1) in pages_to_analyze])
-                except ValueError:
-                    continue
-            elif '-' in part and not part.startswith('-'):
-                # Range like "1-5"
-                try:
-                    start, end = map(int, part.split('-', 1))
-                    range_indices = list(range(start - 1, min(end, total_pdf_pages)))  # Convert to 0-based
-                    first_part_pages.extend([i for i in range_indices if (i + 1) in pages_to_analyze])
-                except ValueError:
-                    continue
-            else:
-                # Single page
-                try:
-                    page_idx = int(part) - 1  # Convert to 0-based
-                    if 0 <= page_idx < total_pdf_pages and (page_idx + 1) in pages_to_analyze:
-                        first_part_pages.append(page_idx)
-                except ValueError:
-                    continue
-        
-        # Remove duplicates and sort
-        first_part_pages = sorted(set(first_part_pages))
-        last_part_pages = sorted(set(last_part_pages))
-        
-        self.logger.info(f"First part pages (0-based): {first_part_pages}")
-        self.logger.info(f"Last part pages (0-based): {last_part_pages}")
-        
-        # Extract page number candidates for each part
-        first_part_sequence = self._extract_sequence_from_pages(doc, first_part_pages)
-        last_part_sequence = self._extract_sequence_from_pages(doc, last_part_pages)
-        
-        doc.close()
-        
-        # Combine sequences using smart logic
-        final_sequence = self._smart_combine_sequences(
-            first_part_sequence, last_part_sequence, 
-            first_part_pages, last_part_pages, total_pdf_pages
-        )
-        
-        return final_sequence
-    
-    def _extract_sequence_from_pages(self, doc, page_indices: List[int]) -> Dict[int, int]:
-        """Extract continuous page number sequence from specific PDF pages"""
-        if not page_indices:
-            return {}
-        
-        # Collect all potential page numbers from the specified pages
+        # Collect all potential page numbers from each page
         page_candidates = {}
         
-        for page_idx in page_indices:
-            if page_idx >= doc.page_count:
-                continue
-                
+        for page_idx in range(total_pages):
             page = doc[page_idx]
             candidates = []
             
@@ -231,206 +150,13 @@ class ImprovedPageNumberExtractor:
             
             page_candidates[page_idx] = candidates
         
+        doc.close()
+        
         # Find the best continuous sequence with consistent positioning
-        return self._find_best_sequence_for_part(page_candidates)
+        best_sequence = self._find_best_sequence(page_candidates)
+        
+        return best_sequence
     
-    def _find_best_sequence_for_part(self, page_candidates: Dict[int, List[Dict]]) -> Dict[int, int]:
-        """Find the best continuous sequence for a part (first or last)"""
-        if len(page_candidates) < 2:
-            return {}
-        
-        import itertools
-        
-        # Generate all possible combinations
-        page_indices = sorted(page_candidates.keys())
-        candidate_lists = [page_candidates[page_idx] for page_idx in page_indices]
-        
-        # Filter out empty candidate lists
-        non_empty_indices = []
-        non_empty_lists = []
-        for i, candidates in enumerate(candidate_lists):
-            if candidates:
-                non_empty_indices.append(page_indices[i])
-                non_empty_lists.append(candidates)
-        
-        if len(non_empty_lists) < 2:
-            return {}
-        
-        best_sequence = None
-        best_score = -1
-        
-        for combination in itertools.product(*non_empty_lists):
-            # Check position consistency
-            if not self._check_position_consistency(combination):
-                continue
-            
-            # Check numerical continuity
-            sequence = {}
-            for i, candidate in enumerate(combination):
-                sequence[non_empty_indices[i]] = candidate["page_num"]
-            
-            # Score based on continuity within this part
-            continuity_score = self._score_part_continuity(sequence)
-            position_score = self._score_position_consistency(combination)
-            
-            total_score = continuity_score + position_score
-            
-            if total_score > best_score:
-                best_score = total_score
-                best_sequence = sequence
-        
-        return best_sequence if best_sequence else {}
-    
-    def _score_part_continuity(self, sequence: Dict[int, int]) -> float:
-        """Score continuity within a part (requires minimum 2 continuous pages)"""
-        if len(sequence) < 2:
-            return 0
-        
-        sorted_items = sorted(sequence.items())
-        continuity_score = 0
-        continuous_pairs = 0
-        
-        for i in range(len(sorted_items) - 1):
-            page_idx1, page_num1 = sorted_items[i]
-            page_idx2, page_num2 = sorted_items[i + 1]
-            
-            expected_diff = page_idx2 - page_idx1
-            actual_diff = page_num2 - page_num1
-            
-            # Perfect continuity: numbers increase by 1 for consecutive pages
-            if actual_diff == expected_diff and actual_diff > 0:
-                continuity_score += 100
-                continuous_pairs += 1
-            elif actual_diff == 1:  # Sequential pages
-                continuity_score += 90
-                continuous_pairs += 1
-            elif abs(actual_diff - expected_diff) <= 1:  # Close match
-                continuity_score += 50
-            else:
-                continuity_score -= 30  # Penalty for poor continuity
-        
-        # Require at least 2 continuous pages to be valid
-        if continuous_pairs == 0:
-            return -100  # Invalid sequence
-        
-        return continuity_score / (len(sorted_items) - 1) if len(sorted_items) > 1 else 0
-    
-    def _smart_combine_sequences(
-        self, 
-        first_sequence: Dict[int, int], 
-        last_sequence: Dict[int, int], 
-        first_pages: List[int], 
-        last_pages: List[int], 
-        total_pdf_pages: int
-    ) -> Dict[int, int]:
-        """Smart combination of first and last part sequences with deduction logic"""
-        
-        # Case 1: Both sequences found
-        if first_sequence and last_sequence:
-            return self._combine_both_sequences(first_sequence, last_sequence, first_pages, last_pages, total_pdf_pages)
-        
-        # Case 2: Only first sequence found
-        elif first_sequence and not last_sequence:
-            return self._extend_first_sequence(first_sequence, first_pages, total_pdf_pages)
-        
-        # Case 3: Only last sequence found  
-        elif not first_sequence and last_sequence:
-            return self._extend_last_sequence(last_sequence, last_pages, total_pdf_pages)
-        
-        # Case 4: No sequences found
-        else:
-            self.logger.warning("No continuous sequences found in either part")
-            return {}
-    
-    def _combine_both_sequences(
-        self, 
-        first_sequence: Dict[int, int], 
-        last_sequence: Dict[int, int], 
-        first_pages: List[int], 
-        last_pages: List[int], 
-        total_pdf_pages: int
-    ) -> Dict[int, int]:
-        """Combine both sequences with smart gap validation"""
-        
-        # Get the ranges from each sequence
-        first_page_nums = sorted(first_sequence.values())
-        last_page_nums = sorted(last_sequence.values())
-        
-        first_end = max(first_page_nums)
-        last_start = min(last_page_nums)
-        
-        # Calculate expected gap based on PDF page positions
-        first_last_pdf_page = max(first_pages)  # Last PDF page of first part
-        last_first_pdf_page = min(last_pages)   # First PDF page of last part
-        
-        pdf_gap = last_first_pdf_page - first_last_pdf_page
-        actual_gap = last_start - first_end
-        
-        self.logger.info(f"Gap analysis - PDF gap: {pdf_gap}, Actual gap: {actual_gap}")
-        
-        # Smart combine if gap makes sense (within reasonable range)
-        if abs(actual_gap - pdf_gap) <= 2:  # Allow some tolerance
-            # Create combined sequence
-            combined = first_sequence.copy()
-            combined.update(last_sequence)
-            self.logger.info(f"Smart combined sequences: {first_end} to {max(last_page_nums)}")
-            return combined
-        else:
-            # Gap too large, return first sequence as it's usually more reliable
-            self.logger.warning(f"Gap too large ({actual_gap} vs expected {pdf_gap}), using first sequence")
-            return self._extend_first_sequence(first_sequence, first_pages, total_pdf_pages)
-    
-    def _extend_first_sequence(self, first_sequence: Dict[int, int], first_pages: List[int], total_pdf_pages: int) -> Dict[int, int]:
-        """Extend first sequence to estimate full range"""
-        if not first_sequence:
-            return {}
-        
-        page_nums = sorted(first_sequence.values())
-        start_page = min(page_nums)
-        end_page = max(page_nums)
-        
-        # Deduce the actual first page of the document
-        first_pdf_page = min(first_pages)  # 0-based
-        if first_pdf_page > 0:
-            # Estimate what the actual first page number should be
-            estimated_first_page = start_page - first_pdf_page
-            self.logger.info(f"Deduced document starts at page: {estimated_first_page}")
-            
-            # Estimate the last page based on total PDF pages
-            estimated_last_page = estimated_first_page + total_pdf_pages - 1
-            self.logger.info(f"Deduced document ends at page: {estimated_last_page}")
-            
-            # Create extended sequence (but return the detected range)
-            return first_sequence
-        else:
-            return first_sequence
-    
-    def _extend_last_sequence(self, last_sequence: Dict[int, int], last_pages: List[int], total_pdf_pages: int) -> Dict[int, int]:
-        """Extend last sequence to estimate full range"""
-        if not last_sequence:
-            return {}
-        
-        page_nums = sorted(last_sequence.values())
-        start_page = min(page_nums)
-        end_page = max(page_nums)
-        
-        # Deduce the actual last page of the document
-        last_pdf_page = max(last_pages)  # 0-based
-        remaining_pages = total_pdf_pages - 1 - last_pdf_page
-        
-        if remaining_pages > 0:
-            # Estimate what the actual last page number should be
-            estimated_last_page = end_page + remaining_pages
-            self.logger.info(f"Deduced document ends at page: {estimated_last_page}")
-            
-            # Estimate the first page
-            estimated_first_page = start_page - (last_pdf_page - (total_pdf_pages - len(last_pages)))
-            self.logger.info(f"Deduced document starts at page: {estimated_first_page}")
-            
-            return last_sequence
-        else:
-            return last_sequence
-
     def _find_best_sequence(self, page_candidates: Dict[int, List[Dict]]) -> Dict[int, int]:
         """Find the best continuous sequence with consistent positioning"""
         if len(page_candidates) < 2:
@@ -709,18 +435,8 @@ class CitationLLM:
         try:
             extractor = ImprovedPageNumberExtractor()
             
-            # Get total PDF pages
-            doc = fitz.open(pdf_path)
-            total_pdf_pages = doc.page_count
-            doc.close()
-            
-            if total_pdf_pages == 0:
-                return {}
-            
-            # Find continuous sequence with page range awareness
-            page_sequence = extractor.find_continuous_page_sequence_with_range(
-                pdf_path, page_range, total_pdf_pages
-            )
+            # Find continuous sequence with consistent positioning
+            page_sequence = extractor.find_continuous_page_sequence(pdf_path, max_pages)
             
             if page_sequence:
                 # Convert to page range format
@@ -728,15 +444,15 @@ class CitationLLM:
                 if len(page_numbers) >= 2:
                     start_page = min(page_numbers)
                     end_page = max(page_numbers)
-                    page_range_result = f"{start_page}-{end_page}"
+                    page_range = f"{start_page}-{end_page}"
                     
-                    logging.info(f"Enhanced page extraction found range: {page_range_result}")
-                    return {"page_numbers": page_range_result}
+                    logging.info(f"Enhanced page extraction found range: {page_range}")
+                    return {"page_numbers": page_range}
                 elif len(page_numbers) == 1:
                     # Single page
-                    page_range_result = str(page_numbers[0])
-                    logging.info(f"Enhanced page extraction found single page: {page_range_result}")
-                    return {"page_numbers": page_range_result}
+                    page_range = str(page_numbers[0])
+                    logging.info(f"Enhanced page extraction found single page: {page_range}")
+                    return {"page_numbers": page_range}
             
             logging.warning("Enhanced page extraction found no continuous sequence")
             
@@ -747,6 +463,13 @@ class CitationLLM:
             logging.error(f"Error in enhanced page number extraction: {e}")
             # Fallback to original method
             return self._fallback_llm_page_extraction(pdf_path)
+    
+    def _fallback_llm_page_extraction(self, pdf_path: str) -> Dict:
+        """Fallback to original LLM-based page extraction method"""
+        try:
+            doc = fitz.open(pdf_path)
+            if doc.page_count == 0:
+                return {}
             
             # Extract text from strategic pages for LLM analysis
             first_page_text = doc[0].get_text() if doc.page_count > 0 else ""
