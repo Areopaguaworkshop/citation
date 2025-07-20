@@ -62,9 +62,6 @@ def is_media_file(file_path: str) -> bool:
     return ext.lower() in media_extensions
 
 
-
-
-
 def parse_page_range(page_range_str: str, total_pages: int) -> List[int]:
     """
     Parse a page range string (e.g., "1-5, -3") into a sorted list of 1-based page numbers.
@@ -86,23 +83,30 @@ def parse_page_range(page_range_str: str, total_pages: int) -> List[int]:
             try:
                 last_n = int(part)
                 if last_n > 0:
-                    logging.warning(f"Invalid last page range '{part}', should be negative. Skipping.")
+                    logging.warning(
+                        f"Invalid last page range '{
+                            part}', should be negative. Skipping."
+                    )
                     continue
                 start_page = max(1, total_pages + last_n + 1)
                 pages_to_process.update(range(start_page, total_pages + 1))
             except ValueError:
-                logging.warning(f"Invalid page range format: {part}. Skipping.")
+                logging.warning(f"Invalid page range format: {
+                                part}. Skipping.")
                 continue
         elif "-" in part:
             # A range of pages (e.g., "1-5")
             try:
                 start, end = map(int, part.split("-"))
                 if start > end:
-                    logging.warning(f"Invalid page range {start}-{end}. Skipping.")
+                    logging.warning(f"Invalid page range {
+                                    start}-{end}. Skipping.")
                     continue
-                pages_to_process.update(range(start, min(end, total_pages) + 1))
+                pages_to_process.update(
+                    range(start, min(end, total_pages) + 1))
             except ValueError:
-                logging.warning(f"Invalid page range format: {part}. Skipping.")
+                logging.warning(f"Invalid page range format: {
+                                part}. Skipping.")
                 continue
         else:
             # A single page
@@ -116,12 +120,7 @@ def parse_page_range(page_range_str: str, total_pages: int) -> List[int]:
     return sorted(list(pages_to_process))
 
 
-
-
-
-def ensure_searchable_pdf(
-    pdf_path: str, lang: str = "eng+chi_sim"
-) -> str:
+def ensure_searchable_pdf(pdf_path: str, lang: str = "eng+chi_sim") -> str:
     """Ensure PDF is searchable using OCR if needed."""
     try:
         doc = fitz.open(pdf_path)
@@ -133,23 +132,38 @@ def ensure_searchable_pdf(
             return pdf_path
         doc.close()
 
-        logging.info(f"PDF is not searchable or empty, running OCR with lang='{lang}'...")
-        
+        logging.info(
+            f"PDF is not searchable or empty, running OCR with lang='{
+                lang}'..."
+        )
+
         # Create a path for the OCR'd file in the same directory
         output_dir = os.path.dirname(pdf_path) or "."
         base_name = os.path.basename(pdf_path)
         ocr_output_path = os.path.join(output_dir, f"ocr_{base_name}")
 
-        cmd = ["ocrmypdf", "--deskew", "--force-ocr", "-l", lang, pdf_path, ocr_output_path]
+        cmd = [
+            "ocrmypdf",
+            "--deskew",
+            "--force-ocr",
+            "-l",
+            lang,
+            pdf_path,
+            ocr_output_path,
+        ]
 
         logging.info(f"Running command: {' '.join(cmd)}")
-        process = subprocess.run(cmd, capture_output=True, text=True, encoding="utf-8", errors="replace")
+        process = subprocess.run(
+            cmd, capture_output=True, text=True, encoding="utf-8", errors="replace"
+        )
 
         if process.returncode == 0:
             logging.info(f"OCR completed successfully: {ocr_output_path}")
             # If the original path was a temp file, remove it as we now have the OCR'd version
-            if "temp" in pdf_path.lower() and os.path.basename(pdf_path).startswith("tmp"):
-                 os.remove(pdf_path)
+            if "temp" in pdf_path.lower() and os.path.basename(pdf_path).startswith(
+                "tmp"
+            ):
+                os.remove(pdf_path)
             return ocr_output_path
         else:
             logging.error(f"OCR failed with return code {process.returncode}.")
@@ -162,7 +176,9 @@ def ensure_searchable_pdf(
         return pdf_path
 
 
-def create_subset_pdf(pdf_path: str, page_range: str, total_pages: int) -> Optional[str]:
+def create_subset_pdf(
+    pdf_path: str, page_range: str, total_pages: int
+) -> Optional[str]:
     """
     Creates a temporary PDF file containing only the pages specified in the page range.
     Returns the path to the temporary file, or None if failed.
@@ -178,16 +194,21 @@ def create_subset_pdf(pdf_path: str, page_range: str, total_pages: int) -> Optio
 
         # Convert 1-based page numbers to 0-based indices
         page_indices = [p - 1 for p in pages_to_include]
-        
-        new_doc.insert_pdf(source_doc, from_page=min(page_indices), to_page=max(page_indices))
+
+        new_doc.insert_pdf(
+            source_doc, from_page=min(page_indices), to_page=max(page_indices)
+        )
 
         # Since older versions don't support selected_pages, we might get more pages than needed.
         # We need to manually delete the pages we don't want.
         # This is less efficient but more compatible.
-        pages_to_keep_in_new_doc = [page_indices.index(p) for p in page_indices]
-        
+        pages_to_keep_in_new_doc = [
+            page_indices.index(p) for p in page_indices]
+
         # Build a list of pages to delete
-        pages_to_delete = [i for i in range(new_doc.page_count) if i not in pages_to_keep_in_new_doc]
+        pages_to_delete = [
+            i for i in range(new_doc.page_count) if i not in pages_to_keep_in_new_doc
+        ]
 
         # Delete pages in reverse order to avoid index shifting issues
         for i in sorted(pages_to_delete, reverse=True):
@@ -196,18 +217,21 @@ def create_subset_pdf(pdf_path: str, page_range: str, total_pages: int) -> Optio
         # Create a temporary file to save the new PDF
         with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as temp_file:
             temp_path = temp_file.name
-        
+
         new_doc.save(temp_path, garbage=4, deflate=True, clean=True)
-        
+
         source_doc.close()
         new_doc.close()
 
-        logging.info(f"Created temporary subset PDF with {len(pages_to_include)} pages at: {temp_path}")
+        logging.info(
+            f"Created temporary subset PDF with {
+                len(pages_to_include)} pages at: {temp_path}"
+        )
         return temp_path
 
     except Exception as e:
         logging.error(f"Error creating subset PDF: {e}")
-        if 'temp_path' in locals() and os.path.exists(temp_path):
+        if "temp_path" in locals() and os.path.exists(temp_path):
             os.remove(temp_path)
         return None
 
@@ -222,16 +246,19 @@ def extract_pdf_text(pdf_path: str, page_number: int) -> str:
             doc.close()
             return text
         else:
-            logging.warning(f"Page number {page_number} is out of range for PDF with {doc.page_count} pages.")
+            logging.warning(
+                f"Page number {page_number} is out of range for PDF with {
+                    doc.page_count} pages."
+            )
             doc.close()
             return ""
     except Exception as e:
-        logging.error(f"Error extracting text from page {page_number} of PDF: {e}")
+        logging.error(f"Error extracting text from page {
+                      page_number} of PDF: {e}")
         return ""
 
 
 def determine_url_type(url: str) -> str:
-
     """Determine URL type."""
     try:
         response = requests.head(url, timeout=10)
@@ -332,14 +359,15 @@ def format_author_csl(author_name: str) -> list:
 
     authors = []
     # Regex to check for CJK characters (Chinese, Japanese, Korean)
-    is_cjk = lambda s: re.search(r'[\u4e00-\u9fff\u3040-\u30ff\uac00-\ud7af]', s)
+    def is_cjk(s): return re.search(
+        r"[\u4e00-\u9fff\u3040-\u30ff\uac00-\ud7af]", s)
 
     # Step 1: Smart Separation
     # Normalize primary delimiters to a standard comma
-    processed_author_name = re.sub(r'[\n;,、]', ',', author_name)
-    
+    processed_author_name = re.sub(r"[\n;,、]", ",", author_name)
+
     # Split by the standard comma first
-    name_parts = processed_author_name.split(',')
+    name_parts = processed_author_name.split(",")
 
     final_name_list = []
     for part in name_parts:
@@ -351,7 +379,8 @@ def format_author_csl(author_name: str) -> list:
             final_name_list.extend(part.split())
         else:
             # For English names, also split by 'and'
-            final_name_list.extend(re.split(r'\s+and\s+', part, flags=re.IGNORECASE))
+            final_name_list.extend(
+                re.split(r"\s+and\s+", part, flags=re.IGNORECASE))
 
     # Step 2: Formatting Individual Names
     for name in final_name_list:
@@ -362,23 +391,35 @@ def format_author_csl(author_name: str) -> list:
         if is_cjk(name):
             literal_name = name
             # CJK name parsing logic
-            if len(name) in [2, 3, 4]: # Common lengths for CJK names
+            if len(name) in [2, 3, 4]:  # Common lengths for CJK names
                 family = name[0]
                 given = name[1:]
-                if len(name) == 4: # Handle two-character family names
+                if len(name) == 4:  # Handle two-character family names
                     family = name[:2]
                     given = name[2:]
-            else: # Fallback for other lengths
+            else:  # Fallback for other lengths
                 family = name[0]
                 given = name[1:]
-            
+
             # Convert to Pinyin for Chinese names if possible, otherwise keep literal
             try:
-                family_pinyin = "".join(item[0] for item in pinyin(family, style=Style.NORMAL)).title()
-                given_pinyin = "".join(item[0] for item in pinyin(given, style=Style.NORMAL)).title()
-                authors.append({"family": family_pinyin, "given": given_pinyin, "literal": literal_name})
+                family_pinyin = "".join(
+                    item[0] for item in pinyin(family, style=Style.NORMAL)
+                ).title()
+                given_pinyin = "".join(
+                    item[0] for item in pinyin(given, style=Style.NORMAL)
+                ).title()
+                authors.append(
+                    {
+                        "family": family_pinyin,
+                        "given": given_pinyin,
+                        "literal": literal_name,
+                    }
+                )
             except:
-                 authors.append({"literal": literal_name}) # Fallback for non-Chinese CJK names
+                authors.append(
+                    {"literal": literal_name}
+                )  # Fallback for non-Chinese CJK names
         else:
             # Western name parsing logic
             parts = name.split()
@@ -387,10 +428,11 @@ def format_author_csl(author_name: str) -> list:
                 given = " ".join(parts[:-1])
                 authors.append({"family": family, "given": given})
             else:
-                authors.append({"literal": name}) # Treat as a single literal name if structure is unclear
-    
-    return authors
+                authors.append(
+                    {"literal": name}
+                )  # Treat as a single literal name if structure is unclear
 
+    return authors
 
 
 def to_csl_json(data: Dict, doc_type: str) -> Dict:
@@ -404,11 +446,12 @@ def to_csl_json(data: Dict, doc_type: str) -> Dict:
         "journal": "article-journal",
         "bookchapter": "chapter",
         "url": "webpage",
-        "media": "motion_picture", # Default for media, can be refined
+        "media": "motion_picture",  # Default for media, can be refined
         "video": "motion_picture",
         "audio": "song",
     }
-    csl["type"] = type_mapping.get(doc_type, "document") # Fallback to 'document'
+    csl["type"] = type_mapping.get(
+        doc_type, "document")  # Fallback to 'document'
 
     # 2. Format Authors and Editors
     if "author" in data:
@@ -420,17 +463,19 @@ def to_csl_json(data: Dict, doc_type: str) -> Dict:
     if "year" in data:
         try:
             # Attempt to parse a full date if available, otherwise just use year
-            date_parts = [int(p) for p in str(data.get("date", data["year"])).split('-')]
+            date_parts = [
+                int(p) for p in str(data.get("date", data["year"])).split("-")
+            ]
             csl["issued"] = {"date-parts": [date_parts]}
         except:
             csl["issued"] = {"date-parts": [[int(data["year"])]]}
-            
+
     if "date_accessed" in data:
         try:
-            date_parts = [int(p) for p in data["date_accessed"].split('-')]
+            date_parts = [int(p) for p in data["date_accessed"].split("-")]
             csl["accessed"] = {"date-parts": [date_parts]}
         except:
-            pass # Don't add if format is wrong
+            pass  # Don't add if format is wrong
 
     # 4. Map Fields
     field_mapping = {
@@ -468,8 +513,8 @@ def to_csl_json(data: Dict, doc_type: str) -> Dict:
     if csl.get("title"):
         title = csl["title"]
         # Shorten title if it's too long
-        if len(title) > 50:
-            title = " ".join(title.split()[:5]) # take first 5 words
+        if len(title) > 100:
+            title = " ".join(title.split()[:20])  # take first 5 words
         id_parts.append(title)
 
     if csl.get("publisher"):
@@ -478,10 +523,10 @@ def to_csl_json(data: Dict, doc_type: str) -> Dict:
     # Function to clean each part for the ID
     def clean_for_id(part):
         # Remove non-alphanumeric characters except for spaces and hyphens
-        part = str(part) # Ensure part is a string
-        part = re.sub(r'[^\w\s-]', '', part).strip()
+        part = str(part)  # Ensure part is a string
+        part = re.sub(r"[^\w\s-]", "", part).strip()
         # Replace spaces and hyphens with a single underscore
-        part = re.sub(r'[\s-]+', '_', part)
+        part = re.sub(r"[\s-]+", "_", part)
         return part
 
     # Clean and join the parts
@@ -489,7 +534,7 @@ def to_csl_json(data: Dict, doc_type: str) -> Dict:
     base_id = "_".join(cleaned_parts)
 
     if not base_id:
-        csl["id"] = "citation-" + os.urandom(4).hex() + ".md" # Fallback ID
+        csl["id"] = "citation-" + os.urandom(4).hex() + ".md"  # Fallback ID
     else:
         csl["id"] = base_id + ".md"
 
@@ -543,3 +588,4 @@ def extract_publisher_from_domain(url: str) -> Optional[str]:
     except Exception as e:
         logging.error(f"Error extracting publisher from domain: {e}")
         return None
+
