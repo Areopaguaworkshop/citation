@@ -4,6 +4,7 @@ import subprocess
 import logging
 import json
 import fitz  # PyMuPDF
+import requests
 from datetime import datetime
 from typing import Dict, Optional
 import tempfile
@@ -26,6 +27,7 @@ from .utils import (
 )
 from .type_judge import determine_document_type
 from .model import CitationLLM
+from .search import search_for_missing_info
 
 # Configure logging
 logging.basicConfig(
@@ -190,9 +192,28 @@ class CitationExtractor:
                     break
             doc.close()
 
-            # Note: Online search step has been removed
             if not _has_all_essential_fields(citation_info, doc_type):
-                print(f"⚠️ Some essential fields for '{doc_type}' may be missing, but proceeding with available data.")
+                print(f"⚠️ Essential fields for '{doc_type}' are missing. Attempting online search...")
+                if citation_info.get("title") and citation_info.get("author"):
+                    found_info = search_for_missing_info(
+                        title=citation_info["title"],
+                        author=citation_info["author"],
+                        llm=self.llm,
+                        doc_type=doc_type,
+                        year=citation_info.get("year"),
+                        publisher=citation_info.get("publisher"),
+                        page=citation_info.get("page_numbers"),
+                    )
+                    if found_info:
+                        print(f"🔍 Found additional info online: {found_info}")
+                        # Merge the found info, giving preference to existing data
+                        for key, value in found_info.items():
+                            if key not in citation_info:
+                                citation_info[key] = value
+                    else:
+                        print("❌ Online search did not yield new information.")
+                else:
+                    print("⚠️ Cannot perform online search without a title and author.")
 
             if not citation_info:
                 print("❌ Failed to extract any citation information with LLM.")
@@ -417,4 +438,6 @@ class CitationExtractor:
         except Exception as e:
             logging.error(f"Error analyzing PDF structure: {e}")
             return 0, ""
+
+
 

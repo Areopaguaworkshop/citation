@@ -60,10 +60,9 @@ While LLMs struggle with proper citations, this tool excels at extracting struct
 - **Multiple Citation Styles**: Chicago, APA, MLA, and any CSL style you need
 - **Structured Metadata**: Author, title, publication date, DOI, ISBN, and more
 
-### ⚡ **Streamlined Performance**
+### ⚡ **Optimized Performance**
 - **Smart Page Selection**: Processes only the most relevant pages for speed
-- **Iterative Extraction**: Efficiently extracts citation data with early stopping when sufficient information is found
-- **Offline Processing**: Works entirely offline for PDF documents without requiring external API calls
+- **Iterative Extraction**: Stops as soon as all essential citation fields are found
 - **Batch Processing**: Handle multiple documents efficiently
 
 ## 🚀 Quick Start
