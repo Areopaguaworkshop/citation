@@ -462,11 +462,13 @@ class ImprovedPageNumberExtractor:
         last_pages: List[int], 
         total_pdf_pages: int
     ) -> Dict[int, int]:
-        """Smart combination of first and last part sequences"""
+        """Smart combination of first and last part sequences with deduction for missing pages"""
         
         # Case 1: Both sequences found
         if first_sequence and last_sequence:
-            return self._combine_both_sequences(first_sequence, last_sequence, first_pages, last_pages, total_pdf_pages)
+            combined = self._combine_both_sequences(first_sequence, last_sequence, first_pages, last_pages, total_pdf_pages)
+            # Try to deduce missing pages after combination
+            return self._deduce_missing_pages(combined, last_pages, total_pdf_pages)
         
         # Case 2: Only first sequence found
         elif first_sequence and not last_sequence:
@@ -474,7 +476,8 @@ class ImprovedPageNumberExtractor:
         
         # Case 3: Only last sequence found  
         elif not first_sequence and last_sequence:
-            return last_sequence
+            # Try to deduce missing pages even with only last sequence
+            return self._deduce_missing_pages(last_sequence, last_pages, total_pdf_pages)
         
         # Case 4: No sequences found
         else:
@@ -510,18 +513,30 @@ class ImprovedPageNumberExtractor:
         self.logger.info(f"Gap analysis - PDF gap: {pdf_gap}, Actual gap: {actual_gap}")
         self.logger.info(f"First sequence: {first_start}-{first_end}, Last sequence: {last_start}-{last_end}")
         
-        # Smart combine: If the sequences look like they belong to the same document
-        # We expect the gap to be reasonable (document pages should be somewhat continuous)
-        if actual_gap > 0 and actual_gap <= pdf_gap + 5:  # Allow some tolerance
-            # Create combined sequence but return the full range
-            self.logger.info(f"Smart combined sequences: {first_start} to {last_end}")
-            # Return the combined sequences with logging
+        # Smart combine: Check if sequences belong to the same document
+        # For academic papers with page gaps, we need more flexible gap analysis
+        
+        # Calculate the expected page progression based on PDF structure
+        first_pdf_pages = sorted([k for k in first_sequence.keys()])
+        last_pdf_pages = sorted([k for k in last_sequence.keys()])
+        
+        # Check if there's a reasonable progression (not necessarily continuous)
+        # Allow larger gaps for academic papers that might skip pages
+        max_reasonable_gap = max(20, pdf_gap * 10)  # More flexible tolerance
+        
+        if actual_gap > 0 and actual_gap <= max_reasonable_gap:
+            # Create combined sequence
+            self.logger.info(f"Smart combined sequences: {first_start} to {last_end} (gap acceptable for academic document)")
             combined = first_sequence.copy()
             combined.update(last_sequence)
             self.logger.debug(f"Combined sequence: {combined}")
             return combined
+        elif last_sequence and len(last_sequence) >= len(first_sequence):
+            # If last sequence is substantial and first sequence has issues, prefer last
+            self.logger.info(f"Using last sequence due to better coverage: {last_start} to {last_end}")
+            return last_sequence
         else:
-            # Gap too large or negative, return first sequence as it's usually more reliable
+            # Gap too large or negative, return first sequence as fallback
             self.logger.warning(f"Gap not suitable for combination ({actual_gap}), using first sequence")
             return first_sequence
 
@@ -570,6 +585,38 @@ class ImprovedPageNumberExtractor:
                 best_sequence = sequence
         
         return best_sequence if best_sequence else {}
+    
+    def _deduce_missing_pages(self, sequence: Dict[int, int], last_pages: List[int], total_pdf_pages: int) -> Dict[int, int]:
+        """Deduce missing page numbers for pages without explicit numbers"""
+        if not sequence:
+            return sequence
+        
+        enhanced_sequence = sequence.copy()
+        
+        # If we have pages in last_pages, deduce from the highest known page
+        if last_pages:
+            # Find the highest PDF page with a known number that's in or before last_pages
+            candidates_in_last = [(pdf_idx, page_num) for pdf_idx, page_num in sequence.items() 
+                                  if pdf_idx in last_pages or pdf_idx <= max(last_pages)]
+            
+            if candidates_in_last:
+                # Use the latest known page as reference
+                last_known_pdf_page = max(candidates_in_last, key=lambda x: x[0])[0]
+                last_known_page_num = sequence[last_known_pdf_page]
+                
+                self.logger.debug(f"Last known: PDF page {last_known_pdf_page+1} = page number {last_known_page_num}")
+                
+                # Deduce for all pages after the last known page up to the end of last_pages
+                max_last_page = max(last_pages)
+                
+                for pdf_page_idx in range(last_known_pdf_page + 1, max_last_page + 1):
+                    if pdf_page_idx < total_pdf_pages and pdf_page_idx not in enhanced_sequence:
+                        # Deduce the page number by adding the difference
+                        deduced_page_num = last_known_page_num + (pdf_page_idx - last_known_pdf_page)
+                        enhanced_sequence[pdf_page_idx] = deduced_page_num
+                        self.logger.info(f"Deduced: PDF page {pdf_page_idx+1} = page number {deduced_page_num}")
+        
+        return enhanced_sequence
     
     def _check_position_consistency(self, combination: List[Dict]) -> bool:
         """Legacy position consistency check for backward compatibility"""
