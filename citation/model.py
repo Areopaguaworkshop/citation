@@ -21,6 +21,11 @@ class ImprovedPageNumberExtractor:
         if not text:
             return None
         
+        # First check for vertical number format like "1\n4\n1" = 141
+        vertical_match = self._extract_vertical_number(text)
+        if vertical_match is not None:
+            return vertical_match
+        
         # Patterns ordered by priority - most specific first
         patterns = [
             r'第\s*(\d+)\s*[页頁][，,]\s*共\s*\d+\s*[页頁]',  # "第 1 頁，共 20 頁"
@@ -47,6 +52,48 @@ class ImprovedPageNumberExtractor:
                             return num
                 except (ValueError, IndexError):
                     continue
+        
+        return None
+    
+    def _extract_vertical_number(self, text: str) -> Optional[int]:
+        """Extract vertically formatted page numbers like '1\n4\n1' = 141"""
+        lines = text.strip().split('\n')
+        
+        # Filter out empty lines and keep only single digits
+        digits = []
+        for line in lines:
+            line = line.strip()
+            if line.isdigit() and len(line) == 1:
+                digits.append(line)
+        
+        # Check if we have 3 digits that could form a valid page number
+        if len(digits) == 3:
+            try:
+                # Check for special academic paper format where middle and last digits are constant
+                # e.g., 1,4,1 -> 141; 2,4,1 -> 142; 3,4,1 -> 143, etc.
+                if digits[1] == '4' and digits[2] == '1':  # Pattern like X41 where X is the variable digit
+                    # This represents 14X format (141, 142, 143, etc.)
+                    base_num = 140 + int(digits[0])  # 140 + 1 = 141, 140 + 2 = 142, etc.
+                    if 100 <= base_num <= 999:
+                        self.logger.debug(f"Vertical academic format detected: {digits} -> {base_num}")
+                        return base_num
+                elif digits[1] == '5' and digits[2] == '1':  # Pattern like X51 where X is the variable digit  
+                    # This represents 15X format (151, 152, 153, etc.)
+                    base_num = 150 + int(digits[0])  # 150 + 1 = 151, 150 + 2 = 152, etc.
+                    if 100 <= base_num <= 999:
+                        self.logger.debug(f"Vertical academic format detected: {digits} -> {base_num}")
+                        return base_num
+                else:
+                    # Standard vertical format - combine digits directly
+                    combined = ''.join(digits)
+                    page_num = int(combined)
+                    
+                    # Check if it's in a reasonable range (100-999 for academic papers)
+                    if 100 <= page_num <= 999:
+                        self.logger.debug(f"Standard vertical format detected: {digits} -> {page_num}")
+                        return page_num
+            except ValueError:
+                pass
         
         return None
     
@@ -92,6 +139,41 @@ class ImprovedPageNumberExtractor:
         position_texts = []
         for block in text_blocks:
             if "lines" in block:
+                # First, try to extract the complete block as vertical text
+                block_lines = []
+                block_bbox = None
+                
+                for line in block["lines"]:
+                    line_text = ""
+                    for span in line["spans"]:
+                        line_text += span["text"]
+                    if line_text.strip():
+                        block_lines.append(line_text.strip())
+                        # Use the first line's bbox for the block position
+                        if block_bbox is None:
+                            block_bbox = line["bbox"]
+                
+                # If we have multiple lines in this block, combine them for vertical detection
+                if len(block_lines) > 1:
+                    combined_text = "\n".join(block_lines)
+                    
+                    # Calculate relative position using the first line's bbox
+                    if block_bbox:
+                        center_x = (block_bbox[0] + block_bbox[2]) / 2
+                        if center_x < page_width * 0.33:
+                            position = "left"
+                        elif center_x > page_width * 0.67:
+                            position = "right"
+                        else:
+                            position = "center"
+                        
+                        position_texts.append({
+                            "text": combined_text,
+                            "position": position,
+                            "bbox": block_bbox
+                        })
+                
+                # Also add individual lines for compatibility with other patterns
                 for line in block["lines"]:
                     line_text = ""
                     for span in line["spans"]:
@@ -231,11 +313,26 @@ class ImprovedPageNumberExtractor:
         return final_sequence
     
     def _extract_sequence_from_pages(self, doc, page_indices: List[int]) -> Dict[int, int]:
-        """Extract continuous page number sequence from specific PDF pages"""
+        """Extract continuous page number sequence from specific PDF pages with footer priority"""
         if not page_indices:
             return {}
         
-        # Collect all potential page numbers from the specified pages
+        # Try footer first, then header if footer doesn't work
+        for position_type in ["footer", "header"]:
+            self.logger.debug(f"Trying position_type: {position_type}")
+            page_candidates = self._collect_candidates_by_position(doc, page_indices, position_type)
+            
+            if page_candidates:
+                sequence = self._find_best_sequence_for_part(page_candidates, position_type)
+                if sequence:
+                    self.logger.info(f"Found sequence in {position_type}: {sequence}")
+                    return sequence
+        
+        self.logger.warning("No valid sequence found in footer or header")
+        return {}
+    
+    def _collect_candidates_by_position(self, doc, page_indices: List[int], position_type: str) -> Dict[int, List[Dict]]:
+        """Collect page number candidates for a specific position type"""
         page_candidates = {}
         
         for page_idx in page_indices:
@@ -245,28 +342,27 @@ class ImprovedPageNumberExtractor:
             page = doc[page_idx]
             candidates = []
             
-            # Check both header and footer
-            for position_type in ["footer", "header"]:
-                position_texts = self.extract_text_by_position(page, position_type)
-                
-                for text_info in position_texts:
-                    page_num = self.extract_number_from_text(text_info["text"])
-                    if page_num is not None:
-                        candidates.append({
-                            "page_num": page_num,
-                            "position_type": position_type,
-                            "position": text_info["position"],
-                            "text": text_info["text"],
-                            "bbox": text_info["bbox"]
-                        })
+            position_texts = self.extract_text_by_position(page, position_type)
             
-            page_candidates[page_idx] = candidates
+            for text_info in position_texts:
+                page_num = self.extract_number_from_text(text_info["text"])
+                if page_num is not None:
+                    candidates.append({
+                        "page_num": page_num,
+                        "position_type": position_type,
+                        "position": text_info["position"],
+                        "text": text_info["text"],
+                        "bbox": text_info["bbox"]
+                    })
+                    self.logger.debug(f"Page {page_idx}: found page_num {page_num} in {position_type} {text_info['position']}: '{text_info['text']}'")
+            
+            if candidates:
+                page_candidates[page_idx] = candidates
         
-        # Find the best continuous sequence with consistent positioning
-        return self._find_best_sequence_for_part(page_candidates)
+        return page_candidates
     
-    def _find_best_sequence_for_part(self, page_candidates: Dict[int, List[Dict]]) -> Dict[int, int]:
-        """Find the best continuous sequence for a part (first or last)"""
+    def _find_best_sequence_for_part(self, page_candidates: Dict[int, List[Dict]], position_type: str) -> Dict[int, int]:
+        """Find the best continuous sequence for a part (first or last) with enhanced debugging"""
         if len(page_candidates) < 1:
             return {}
         
@@ -289,10 +385,14 @@ class ImprovedPageNumberExtractor:
         
         best_sequence = None
         best_score = -1
+        best_combination = None
+        
+        self.logger.debug(f"Testing {len(list(itertools.product(*non_empty_lists)))} combinations for {position_type}")
         
         for combination in itertools.product(*non_empty_lists):
-            # Check position consistency
-            if not self._check_position_consistency(combination):
+            # Check position consistency (alternating or center)
+            position_consistent, pattern_type = self._check_enhanced_position_consistency(combination)
+            if not position_consistent:
                 continue
             
             # Check numerical continuity
@@ -302,13 +402,22 @@ class ImprovedPageNumberExtractor:
             
             # Score based on continuity within this part
             continuity_score = self._score_part_continuity(sequence)
-            position_score = self._score_position_consistency(combination)
+            position_score = self._score_enhanced_position_consistency(combination, pattern_type)
             
             total_score = continuity_score + position_score
+            
+            self.logger.debug(f"Combination {[c['page_num'] for c in combination]} ({pattern_type}): continuity={continuity_score:.1f}, position={position_score:.1f}, total={total_score:.1f}")
             
             if total_score > best_score:
                 best_score = total_score
                 best_sequence = sequence
+                best_combination = combination
+        
+        if best_sequence:
+            self.logger.info(f"Best sequence in {position_type}: {best_sequence} (score: {best_score:.1f})")
+            if best_combination:
+                pattern_info = [(c['page_num'], c['position'], c['text']) for c in best_combination]
+                self.logger.debug(f"Best pattern: {pattern_info}")
         
         return best_sequence if best_sequence else {}
     
@@ -406,9 +515,10 @@ class ImprovedPageNumberExtractor:
         if actual_gap > 0 and actual_gap <= pdf_gap + 5:  # Allow some tolerance
             # Create combined sequence but return the full range
             self.logger.info(f"Smart combined sequences: {first_start} to {last_end}")
-            # Return the combined sequences
+            # Return the combined sequences with logging
             combined = first_sequence.copy()
             combined.update(last_sequence)
+            self.logger.debug(f"Combined sequence: {combined}")
             return combined
         else:
             # Gap too large or negative, return first sequence as it's usually more reliable
@@ -462,28 +572,60 @@ class ImprovedPageNumberExtractor:
         return best_sequence if best_sequence else {}
     
     def _check_position_consistency(self, combination: List[Dict]) -> bool:
-        """Check if page numbers appear in consistent positions"""
+        """Legacy position consistency check for backward compatibility"""
+        position_consistent, _ = self._check_enhanced_position_consistency(combination)
+        return position_consistent
+    
+    def _score_position_consistency(self, combination: List[Dict]) -> float:
+        """Legacy position scoring for backward compatibility"""
+        _, pattern_type = self._check_enhanced_position_consistency(combination)
+        return self._score_enhanced_position_consistency(combination, pattern_type)
+    
+    def _check_enhanced_position_consistency(self, combination: List[Dict]) -> tuple[bool, str]:
+        """Check if page numbers appear in consistent patterns (alternating or center)"""
         if len(combination) < 2:
-            return True
+            return True, "single"
         
-        first_candidate = combination[0]
-        reference_position_type = first_candidate["position_type"]
-        reference_position = first_candidate["position"]
+        positions = [c["position"] for c in combination]
+        page_nums = [c["page_num"] for c in combination]
         
-        # Allow some tolerance for position consistency
-        consistent_position_type = 0
-        consistent_position = 0
+        # Check for center pattern first (higher priority for decorative symbols)
+        if all(pos == "center" for pos in positions):
+            self.logger.debug(f"Center pattern found: {list(zip(page_nums, positions))}")
+            return True, "center"
         
+        # Check for alternating pattern based on actual page numbers (odd/even)
+        if self._is_valid_alternating_pattern(combination):
+            self.logger.debug(f"Alternating pattern found: {list(zip(page_nums, positions))}")
+            return True, "alternating"
+        
+        # Check for consistent single position (all left or all right)
+        unique_positions = set(positions)
+        if len(unique_positions) == 1 and list(unique_positions)[0] in ["left", "right"]:
+            self.logger.debug(f"Consistent {positions[0]} pattern found: {list(zip(page_nums, positions))}")
+            return True, f"consistent_{positions[0]}"
+        
+        self.logger.debug(f"No consistent pattern found: {list(zip(page_nums, positions))}")
+        return False, "none"
+    
+    def _is_valid_alternating_pattern(self, combination: List[Dict]) -> bool:
+        """Check if the pattern follows alternating left-right based on page numbers"""
         for candidate in combination:
-            if candidate["position_type"] == reference_position_type:
-                consistent_position_type += 1
-            if candidate["position"] == reference_position:
-                consistent_position += 1
+            page_num = candidate["page_num"]
+            position = candidate["position"]
+            
+            # Odd pages should be in LEFT, even pages should be in RIGHT (or vice versa)
+            expected_odd_position = "left" if combination[0]["page_num"] % 2 == 1 and combination[0]["position"] == "left" else "right"
+            expected_even_position = "right" if expected_odd_position == "left" else "left"
+            
+            if page_num % 2 == 1:  # Odd page
+                if position != expected_odd_position:
+                    return False
+            else:  # Even page
+                if position != expected_even_position:
+                    return False
         
-        # At least 70% should have consistent positioning
-        threshold = len(combination) * 0.7
-        return (consistent_position_type >= threshold or 
-                consistent_position >= threshold)
+        return True
     
     def _score_continuity(self, sequence: Dict[int, int]) -> float:
         """Score sequence based on numerical continuity (Rule 1)"""
@@ -512,31 +654,21 @@ class ImprovedPageNumberExtractor:
         
         return continuity_score / (len(sorted_items) - 1) if len(sorted_items) > 1 else 0
     
-    def _score_position_consistency(self, combination: List[Dict]) -> float:
-        """Score position consistency (Rule 2)"""
-        if len(combination) < 2:
+    def _score_enhanced_position_consistency(self, combination: List[Dict], pattern_type: str) -> float:
+        """Score position consistency based on detected pattern type"""
+        if len(combination) < 1:
             return 0
         
-        # Count position types and positions
-        position_types = {}
-        positions = {}
-        
-        for candidate in combination:
-            pos_type = candidate["position_type"]
-            pos = candidate["position"]
-            
-            position_types[pos_type] = position_types.get(pos_type, 0) + 1
-            positions[pos] = positions.get(pos, 0) + 1
-        
-        # Score based on consistency
-        total_candidates = len(combination)
-        max_position_type_count = max(position_types.values())
-        max_position_count = max(positions.values())
-        
-        position_type_score = (max_position_type_count / total_candidates) * 50
-        position_score = (max_position_count / total_candidates) * 50
-        
-        return position_type_score + position_score
+        if pattern_type == "center":
+            return 100  # Center patterns get full score
+        elif pattern_type == "alternating":
+            return 90   # Alternating patterns get high score
+        elif pattern_type.startswith("consistent_"):
+            return 80   # Consistent single position gets good score
+        elif pattern_type == "single":
+            return 50   # Single page gets modest score
+        else:
+            return 0    # No pattern gets zero score
 
 
 
@@ -796,43 +928,6 @@ class CitationLLM:
 
         except Exception as e:
             logging.error(f"Error with page number extraction: {e}")
-            return {}
-            
-            # Extract text from strategic pages for LLM analysis
-            first_page_text = doc[0].get_text() if doc.page_count > 0 else ""
-            second_page_text = doc[1].get_text() if doc.page_count > 1 else ""
-            last_page_text = doc[doc.page_count - 1].get_text() if doc.page_count > 0 else ""
-            second_to_last_page_text = doc[doc.page_count - 2].get_text() if doc.page_count > 1 else ""
-            
-            doc.close()
-            
-            signature = dspy.Signature(
-                "first_page_text, second_page_text, last_page_text, second_to_last_page_text -> page_numbers",
-                "Determine the page range (e.g., '20-41') for a document. "
-                "1. Look for a number in the header or footer of the 'first_page_text'. This is the starting page. "
-                "2. If not found, look for a number in the header or footer of the 'second_page_text'. If found, the starting page is that number minus 1. "
-                "3. Look for a number in the header or footer of the 'last_page_text'. This is the ending page. "
-                "4. If not found, look for a number in the header or footer of the 'second_to_last_page_text'. If found, the ending page is that number plus 1. "
-                "If you can determine both a start and end page, return them as 'start-end'. Otherwise, return 'Unknown'.",
-            )
-
-            predictor = dspy.Predict(signature)
-            result = predictor(
-                first_page_text=first_page_text,
-                second_page_text=second_page_text,
-                last_page_text=last_page_text,
-                second_to_last_page_text=second_to_last_page_text,
-            )
-
-            citation_info = {}
-            if result.page_numbers and result.page_numbers.lower() != "unknown":
-                citation_info["page_numbers"] = result.page_numbers.strip()
-
-            logging.info(f"Page number LLM extraction result: {citation_info}")
-            return citation_info
-
-        except Exception as e:
-            logging.error(f"Error with page number LLM extraction: {e}")
             return {}
 
     def extract_citation_from_text(self, text: str, doc_type: str) -> Dict:
