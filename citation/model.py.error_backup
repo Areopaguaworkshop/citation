@@ -1,10 +1,10 @@
 import dspy
 import logging
-from typing import Dict, Optional, List
+import re
 import fitz  # PyMuPDF
+from typing import Dict, Optional, List, Tuple
 from .llm import get_llm_model
 
-import re
 
 class ImprovedPageNumberExtractor:
     """Enhanced page number extraction with pattern recognition and position consistency"""
@@ -21,7 +21,7 @@ class ImprovedPageNumberExtractor:
         if not text:
             return None
         
-        # Patterns ordered by priority - most specific first
+        # Patterns ordered by priority - most specific first (based on page_extractor.py)
         patterns = [
             r'第\s*(\d+)\s*[页頁][，,]\s*共\s*\d+\s*[页頁]',  # "第 1 頁，共 20 頁"
             r'[·•∙・\-]\s*(\d+)\s*[·•∙・\-]',               # "·190·" or "•191•" - HIGH PRIORITY
@@ -45,30 +45,36 @@ class ImprovedPageNumberExtractor:
                         num = int(value)
                         if 1 <= num <= 9999:  # Reasonable page number range
                             return num
+                    elif re.match(r'^[ivxlcdmIVXLCDM]+$', value, re.IGNORECASE):
+                        # Roman numerals - convert to int if needed
+                        return self._roman_to_int(value.upper())
                 except (ValueError, IndexError):
                     continue
         
         return None
     
-
-    def extract_total_pages_from_text(self, text: str) -> Optional[int]:
-        """Extract total page count from patterns like '第 X 頁，共 Y 頁'"""
-        if not text:
-            return None
+    def _roman_to_int(self, roman: str) -> Optional[int]:
+        """Convert roman numerals to integers"""
+        roman_values = {
+            'I': 1, 'V': 5, 'X': 10, 'L': 50, 
+            'C': 100, 'D': 500, 'M': 1000
+        }
         
-        # Pattern to extract total pages: "共 20 頁" 
-        total_pattern = r'共\s*(\d+)\s*[页頁]'
-        match = re.search(total_pattern, text, re.IGNORECASE)
-        if match:
-            try:
-                total = int(match.group(1))
-                if 1 <= total <= 9999:  # Reasonable range
-                    return total
-            except (ValueError, IndexError):
-                pass
+        total = 0
+        prev_value = 0
         
-        return None
-
+        for char in reversed(roman):
+            if char not in roman_values:
+                return None
+            value = roman_values[char]
+            if value < prev_value:
+                total -= value
+            else:
+                total += value
+            prev_value = value
+        
+        return total if total > 0 else None
+    
     def extract_text_by_position(self, page, position_type="footer"):
         """Extract text from specific positions (header/footer)"""
         page_rect = page.rect
@@ -115,43 +121,6 @@ class ImprovedPageNumberExtractor:
         
         return position_texts
     
-    def find_continuous_page_sequence(self, pdf_path: str, max_pages: int = 5) -> Dict[int, int]:
-        """Find continuous page number sequences with consistent positioning"""
-        doc = fitz.open(pdf_path)
-        total_pages = min(doc.page_count, max_pages)
-        
-        # Collect all potential page numbers from each page
-        page_candidates = {}
-        
-        for page_idx in range(total_pages):
-            page = doc[page_idx]
-            candidates = []
-            
-            # Check both header and footer
-            for position_type in ["footer", "header"]:
-                position_texts = self.extract_text_by_position(page, position_type)
-                
-                for text_info in position_texts:
-                    page_num = self.extract_number_from_text(text_info["text"])
-                    if page_num is not None:
-                        candidates.append({
-                            "page_num": page_num,
-                            "position_type": position_type,
-                            "position": text_info["position"],
-                            "text": text_info["text"],
-                            "bbox": text_info["bbox"]
-                        })
-            
-            page_candidates[page_idx] = candidates
-        
-        doc.close()
-        
-        # Find the best continuous sequence with consistent positioning
-        best_sequence = self._find_best_sequence(page_candidates)
-        
-        return best_sequence
-    
-
     def find_continuous_page_sequence_with_range(self, pdf_path: str, page_range: str, total_pdf_pages: int) -> Dict[int, int]:
         """
         Find continuous page number sequences respecting the page_range structure.
@@ -217,8 +186,8 @@ class ImprovedPageNumberExtractor:
         self.logger.info(f"Last part pages (0-based): {last_part_pages}")
         
         # Extract page number candidates for each part
-        first_part_sequence = self._extract_sequence_from_pages(doc, first_part_pages) if first_part_pages else {}
-        last_part_sequence = self._extract_sequence_from_pages(doc, last_part_pages) if last_part_pages else {}
+        first_part_sequence = self._extract_sequence_from_pages(doc, first_part_pages)
+        last_part_sequence = self._extract_sequence_from_pages(doc, last_part_pages)
         
         doc.close()
         
@@ -267,7 +236,7 @@ class ImprovedPageNumberExtractor:
     
     def _find_best_sequence_for_part(self, page_candidates: Dict[int, List[Dict]]) -> Dict[int, int]:
         """Find the best continuous sequence for a part (first or last)"""
-        if len(page_candidates) < 1:
+        if len(page_candidates) < 2:
             return {}
         
         import itertools
@@ -284,7 +253,7 @@ class ImprovedPageNumberExtractor:
                 non_empty_indices.append(page_indices[i])
                 non_empty_lists.append(candidates)
         
-        if len(non_empty_lists) < 1:
+        if len(non_empty_lists) < 2:
             return {}
         
         best_sequence = None
@@ -313,13 +282,10 @@ class ImprovedPageNumberExtractor:
         return best_sequence if best_sequence else {}
     
     def _score_part_continuity(self, sequence: Dict[int, int]) -> float:
-        """Score continuity within a part (allows single pages)"""
-        if len(sequence) < 1:
+        """Score continuity within a part (requires minimum 2 continuous pages)"""
+        if len(sequence) < 2:
             return 0
         
-        if len(sequence) == 1:
-            return 50  # Single page gets modest score
-            
         sorted_items = sorted(sequence.items())
         continuity_score = 0
         continuous_pairs = 0
@@ -343,7 +309,11 @@ class ImprovedPageNumberExtractor:
             else:
                 continuity_score -= 30  # Penalty for poor continuity
         
-        return continuity_score / (len(sorted_items) - 1) if len(sorted_items) > 1 else continuity_score
+        # Require at least 2 continuous pages to be valid
+        if continuous_pairs == 0:
+            return -100  # Invalid sequence
+        
+        return continuity_score / (len(sorted_items) - 1) if len(sorted_items) > 1 else 0
     
     def _smart_combine_sequences(
         self, 
@@ -353,7 +323,7 @@ class ImprovedPageNumberExtractor:
         last_pages: List[int], 
         total_pdf_pages: int
     ) -> Dict[int, int]:
-        """Smart combination of first and last part sequences"""
+        """Smart combination of first and last part sequences with deduction logic"""
         
         # Case 1: Both sequences found
         if first_sequence and last_sequence:
@@ -361,11 +331,11 @@ class ImprovedPageNumberExtractor:
         
         # Case 2: Only first sequence found
         elif first_sequence and not last_sequence:
-            return first_sequence
+            return self._extend_first_sequence(first_sequence, first_pages, total_pdf_pages)
         
         # Case 3: Only last sequence found  
         elif not first_sequence and last_sequence:
-            return last_sequence
+            return self._extend_last_sequence(last_sequence, last_pages, total_pdf_pages)
         
         # Case 4: No sequences found
         else:
@@ -386,10 +356,8 @@ class ImprovedPageNumberExtractor:
         first_page_nums = sorted(first_sequence.values())
         last_page_nums = sorted(last_sequence.values())
         
-        first_start = min(first_page_nums)
         first_end = max(first_page_nums)
         last_start = min(last_page_nums)
-        last_end = max(last_page_nums)
         
         # Calculate expected gap based on PDF page positions
         first_last_pdf_page = max(first_pages)  # Last PDF page of first part
@@ -399,21 +367,69 @@ class ImprovedPageNumberExtractor:
         actual_gap = last_start - first_end
         
         self.logger.info(f"Gap analysis - PDF gap: {pdf_gap}, Actual gap: {actual_gap}")
-        self.logger.info(f"First sequence: {first_start}-{first_end}, Last sequence: {last_start}-{last_end}")
         
-        # Smart combine: If the sequences look like they belong to the same document
-        # We expect the gap to be reasonable (document pages should be somewhat continuous)
-        if actual_gap > 0 and actual_gap <= pdf_gap + 5:  # Allow some tolerance
-            # Create combined sequence but return the full range
-            self.logger.info(f"Smart combined sequences: {first_start} to {last_end}")
-            # Return the combined sequences
+        # Smart combine if gap makes sense (within reasonable range)
+        if abs(actual_gap - pdf_gap) <= 2:  # Allow some tolerance
+            # Create combined sequence
             combined = first_sequence.copy()
             combined.update(last_sequence)
+            self.logger.info(f"Smart combined sequences: {first_end} to {max(last_page_nums)}")
             return combined
         else:
-            # Gap too large or negative, return first sequence as it's usually more reliable
-            self.logger.warning(f"Gap not suitable for combination ({actual_gap}), using first sequence")
+            # Gap too large, return first sequence as it's usually more reliable
+            self.logger.warning(f"Gap too large ({actual_gap} vs expected {pdf_gap}), using first sequence")
+            return self._extend_first_sequence(first_sequence, first_pages, total_pdf_pages)
+    
+    def _extend_first_sequence(self, first_sequence: Dict[int, int], first_pages: List[int], total_pdf_pages: int) -> Dict[int, int]:
+        """Extend first sequence to estimate full range"""
+        if not first_sequence:
+            return {}
+        
+        page_nums = sorted(first_sequence.values())
+        start_page = min(page_nums)
+        end_page = max(page_nums)
+        
+        # Deduce the actual first page of the document
+        first_pdf_page = min(first_pages)  # 0-based
+        if first_pdf_page > 0:
+            # Estimate what the actual first page number should be
+            estimated_first_page = start_page - first_pdf_page
+            self.logger.info(f"Deduced document starts at page: {estimated_first_page}")
+            
+            # Estimate the last page based on total PDF pages
+            estimated_last_page = estimated_first_page + total_pdf_pages - 1
+            self.logger.info(f"Deduced document ends at page: {estimated_last_page}")
+            
+            # Create extended sequence (but return the detected range)
             return first_sequence
+        else:
+            return first_sequence
+    
+    def _extend_last_sequence(self, last_sequence: Dict[int, int], last_pages: List[int], total_pdf_pages: int) -> Dict[int, int]:
+        """Extend last sequence to estimate full range"""
+        if not last_sequence:
+            return {}
+        
+        page_nums = sorted(last_sequence.values())
+        start_page = min(page_nums)
+        end_page = max(page_nums)
+        
+        # Deduce the actual last page of the document
+        last_pdf_page = max(last_pages)  # 0-based
+        remaining_pages = total_pdf_pages - 1 - last_pdf_page
+        
+        if remaining_pages > 0:
+            # Estimate what the actual last page number should be
+            estimated_last_page = end_page + remaining_pages
+            self.logger.info(f"Deduced document ends at page: {estimated_last_page}")
+            
+            # Estimate the first page
+            estimated_first_page = start_page - (last_pdf_page - (total_pdf_pages - len(last_pages)))
+            self.logger.info(f"Deduced document starts at page: {estimated_first_page}")
+            
+            return last_sequence
+        else:
+            return last_sequence
 
     def _find_best_sequence(self, page_candidates: Dict[int, List[Dict]]) -> Dict[int, int]:
         """Find the best continuous sequence with consistent positioning"""
@@ -537,8 +553,6 @@ class ImprovedPageNumberExtractor:
         position_score = (max_position_count / total_candidates) * 50
         
         return position_type_score + position_score
-
-
 
 
 class CitationLLM:
@@ -682,31 +696,28 @@ class CitationLLM:
 
     def extract_page_numbers_for_journal_chapter(
         self,
-        pdf_path: str,
-        page_range: str = "1-5, -3"
+        pdf_path: str,  # Changed from text parameters to PDF path
+        max_pages: int = 5
     ) -> Dict:
         """
         Enhanced page number extraction using pattern recognition and position consistency.
         
-        Args:
-            pdf_path: Path to the PDF file
-            page_range: Page range to analyze (e.g., "1-5, -3")
-        
-        Returns:
-            Dict with page_numbers field if found
+        Implements two key rules:
+        1. Continuous number patterns (e.g., 186, 187, 188, 189, 190)
+        2. Consistent positioning (same location in header/footer)
         """
         try:
-            # Step 1: Try advanced pattern-based extraction first
             extractor = ImprovedPageNumberExtractor()
             
-            # Use the enhanced pattern recognition with max 5 pages for now
-            # TODO: Implement full page-range awareness as discussed
-            # Get PDF page count for page-range aware extraction
-            doc_temp = fitz.open(pdf_path)
-            total_pdf_pages = doc_temp.page_count
-            doc_temp.close()
+            # Get total PDF pages
+            doc = fitz.open(pdf_path)
+            total_pdf_pages = doc.page_count
+            doc.close()
             
-            # Use page-range aware extraction
+            if total_pdf_pages == 0:
+                return {}
+            
+            # Find continuous sequence with page range awareness
             page_sequence = extractor.find_continuous_page_sequence_with_range(
                 pdf_path, page_range, total_pdf_pages
             )
@@ -714,89 +725,28 @@ class CitationLLM:
             if page_sequence:
                 # Convert to page range format
                 page_numbers = list(page_sequence.values())
-                start_page = min(page_numbers)
-                
-                # Try to extract total page count from any page text
-                doc = fitz.open(pdf_path)
-                total_pages = None
-                for i in range(min(3, doc.page_count)):  # Check first 3 pages for total
-                    page = doc[i]
-                    for position_type in ["header", "footer"]:
-                        position_texts = extractor.extract_text_by_position(page, position_type)
-                        for text_info in position_texts:
-                            total = extractor.extract_total_pages_from_text(text_info["text"])
-                            if total:
-                                total_pages = total
-                                break
-                        if total_pages:
-                            break
-                    if total_pages:
-                        break
-                doc.close()
-                
-                if total_pages and total_pages > start_page:
-                    # Use the full document range
-                    page_result = f"{start_page}-{total_pages}"
-                    logging.info(f"Pattern-based page extraction found full range: {page_result} (from 共 {total_pages} 頁)")
-                    return {"page_numbers": page_result}
-                elif len(page_numbers) >= 2:
-                    # Fallback to detected range
+                if len(page_numbers) >= 2:
+                    start_page = min(page_numbers)
                     end_page = max(page_numbers)
-                    page_result = f"{start_page}-{end_page}"
-                    logging.info(f"Pattern-based page extraction found sample range: {page_result}")
-                    return {"page_numbers": page_result}
+                    page_range_result = f"{start_page}-{end_page}"
+                    
+                    logging.info(f"Enhanced page extraction found range: {page_range_result}")
+                    return {"page_numbers": page_range_result}
                 elif len(page_numbers) == 1:
                     # Single page
-                    page_result = str(page_numbers[0])
-                    logging.info(f"Pattern-based page extraction found single page: {page_result}")
-                    return {"page_numbers": page_result}
+                    page_range_result = str(page_numbers[0])
+                    logging.info(f"Enhanced page extraction found single page: {page_range_result}")
+                    return {"page_numbers": page_range_result}
             
-            logging.info("Pattern-based extraction found no continuous sequence, falling back to LLM")
+            logging.warning("Enhanced page extraction found no continuous sequence")
             
-            # Step 2: Fallback to LLM-based method if pattern-based fails
-            doc = fitz.open(pdf_path)
-            if doc.page_count == 0:
-                doc.close()
-                return {}
+            # Fallback to original LLM-based method if pattern-based fails
+            return self._fallback_llm_page_extraction(pdf_path)
             
-            # Extract text from strategic pages for LLM analysis
-            first_page_text = doc[0].get_text() if doc.page_count > 0 else ""
-            second_page_text = doc[1].get_text() if doc.page_count > 1 else ""
-            last_page_text = doc[doc.page_count - 1].get_text() if doc.page_count > 0 else ""
-            second_to_last_page_text = doc[doc.page_count - 2].get_text() if doc.page_count > 1 else ""
-            
-            doc.close()
-            
-            signature = dspy.Signature(
-                "first_page_text, second_page_text, last_page_text, second_to_last_page_text -> page_numbers",
-                "Determine the page range (e.g., '20-41') for a document. "
-                "1. Look for a number in the header or footer of the 'first_page_text'. This is the starting page. "
-                "2. If not found, look for a number in the header or footer of the 'second_page_text'. If found, the starting page is that number minus 1. "
-                "3. Look for a number in the header or footer of the 'last_page_text'. This is the ending page. "
-                "4. If not found, look for a number in the header or footer of the 'second_to_last_page_text'. If found, the ending page is that number plus 1. "
-                "If you can determine both a start and end page, return them as 'start-end'. Otherwise, return 'Unknown'.",
-            )
-
-            predictor = dspy.Predict(signature)
-            result = predictor(
-                first_page_text=first_page_text,
-                second_page_text=second_page_text,
-                last_page_text=last_page_text,
-                second_to_last_page_text=second_to_last_page_text,
-            )
-
-            citation_info = {}
-            if result.page_numbers and result.page_numbers.lower() != "unknown":
-                citation_info["page_numbers"] = result.page_numbers.strip()
-                logging.info(f"LLM fallback page extraction result: {citation_info}")
-            else:
-                logging.warning("LLM fallback also failed to extract page numbers")
-
-            return citation_info
-
         except Exception as e:
-            logging.error(f"Error with page number extraction: {e}")
-            return {}
+            logging.error(f"Error in enhanced page number extraction: {e}")
+            # Fallback to original method
+            return self._fallback_llm_page_extraction(pdf_path)
             
             # Extract text from strategic pages for LLM analysis
             first_page_text = doc[0].get_text() if doc.page_count > 0 else ""
@@ -828,11 +778,11 @@ class CitationLLM:
             if result.page_numbers and result.page_numbers.lower() != "unknown":
                 citation_info["page_numbers"] = result.page_numbers.strip()
 
-            logging.info(f"Page number LLM extraction result: {citation_info}")
+            logging.info(f"Fallback LLM page extraction result: {citation_info}")
             return citation_info
-
+            
         except Exception as e:
-            logging.error(f"Error with page number LLM extraction: {e}")
+            logging.error(f"Error with fallback LLM page extraction: {e}")
             return {}
 
     def extract_citation_from_text(self, text: str, doc_type: str) -> Dict:
