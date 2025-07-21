@@ -1,6 +1,6 @@
 [project]
 name = "cite-extractor"
-version = "0.10.2"
+version = "0.10.3"
 description = "Extracts citations from PDF, URLs and local media files in CSL-JSON. "
 authors = [{ name = "ajia", email = "yyjfwoaini@gmail.com" }]
 dependencies = [
