@@ -303,7 +303,7 @@ class CitationExtractor:
                 citation_info["url"] = url
                 citation_info["date_accessed"] = datetime.now().strftime("%Y-%m-%d")
 
-                csl_type = "webpage" if url_type == "text" else "motion_picture"
+                csl_type = "webpage" if url_type == "text" else "video"
 
                 print("💾 Step 4: Converting to CSL JSON and saving...")
                 csl_data = to_csl_json(citation_info, csl_type)

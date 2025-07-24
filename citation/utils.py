@@ -244,19 +244,58 @@ def extract_pdf_text(pdf_path: str, page_number: int) -> str:
 
 
 def determine_url_type(url: str) -> str:
-    """Determine URL type."""
+    """Determine URL type with enhanced platform detection."""
     try:
+        # First, check for known video/audio platforms by domain
+        from urllib.parse import urlparse
+        parsed_url = urlparse(url.lower())
+        domain = parsed_url.netloc.replace("www.", "")
+        
+        # Video platforms - these should return "media" for motion_picture CSL type
+        video_platforms = {
+            "youtube.com",
+            "youtu.be", 
+            "vimeo.com",
+            "dailymotion.com", 
+            "twitch.tv",
+            "tiktok.com",
+            "bilibili.com",
+            "rumble.com",
+        }
+        
+        # Audio platforms
+        audio_platforms = {
+            "soundcloud.com",
+            "spotify.com", 
+            "anchor.fm",
+            "podcasts.google.com",
+        }
+        
+        # Check video platforms first
+        if domain in video_platforms:
+            return "media"  # This will trigger motion_picture CSL type
+        
+        # Check audio platforms  
+        if domain in audio_platforms:
+            return "media"  # This will trigger motion_picture CSL type
+        
+        # For social media platforms, check URL patterns for video content
+        if domain in ["facebook.com", "instagram.com", "twitter.com", "x.com"]:
+            if any(pattern in url.lower() for pattern in ["/video/", "/watch/", "/reel/", "/status/"]):
+                return "media"
+        
+        # Fallback to header-based detection for other URLs
         response = requests.head(url, timeout=10)
         content_type = response.headers.get("content-type", "").lower()
-
+        
         if "video" in content_type or "audio" in content_type:
             return "media"
         else:
             return "text"
+            
     except Exception as e:
         logging.error(f"Error determining URL type: {e}")
         return "text"
-
 
 def save_citation(csl_data: Dict, output_dir: str):
     """Save citation information as a CSL JSON file."""
@@ -433,6 +472,7 @@ def to_csl_json(data: Dict, doc_type: str) -> Dict:
         "url": "webpage",
         "media": "motion_picture",  # Default for media, can be refined
         "video": "motion_picture",
+        "motion_picture": "motion_picture",
         "audio": "song",
     }
     csl["type"] = type_mapping.get(

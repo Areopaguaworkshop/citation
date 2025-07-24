@@ -1,0 +1,21 @@
+{
+  "type": "motion_picture",
+  "author": [
+    {
+      "literal": "Unknown"
+    }
+  ],
+  "accessed": {
+    "date-parts": [
+      [
+        2025,
+        7,
+        23
+      ]
+    ]
+  },
+  "title": "Media content from URL",
+  "container-title": "Youtube",
+  "URL": "https://www.youtube.com/watch?v=YW-TWinO65k",
+  "id": "Media_content_from_URL.md"
+}
