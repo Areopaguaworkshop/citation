@@ -10,6 +10,8 @@ import tempfile
 from pymediainfo import MediaInfo
 import asyncio
 from crawl4ai import AsyncWebCrawler
+import yt_dlp
+
 
 from .utils import (
     clean_url,
@@ -320,63 +322,68 @@ class CitationExtractor:
             return None
 
     def _extract_from_text_url(self, url: str) -> Dict:
-        """Extracts citation from a text-based URL, using crawl4ai as a fallback."""
-        citation_info = {}
-        essential_fields = ["title", "author", "date", "container-title"]
-
-        # Step 1: Initial extraction with Trafilatura
+        """Extracts citation from a text-based URL using a three-stage process."""
+        # Stage 1: Initial Metadata Extraction (Baseline)
+        print("🔍 Stage 1: Extracting initial metadata with trafilatura...")
+        initial_citation = {}
+        page_content = ""
         try:
-            print("🔍 Step 1: Extracting with trafilatura...")
             cleaned_url = clean_url(url)
             downloaded = trafilatura.fetch_url(cleaned_url)
             if downloaded:
+                # Extract main content for later stages
+                page_content = trafilatura.extract(downloaded, include_comments=False, include_tables=False)
+                
                 metadata = trafilatura.extract_metadata(downloaded)
                 if metadata:
                     if metadata.title:
-                        citation_info["title"] = metadata.title
+                        initial_citation["title"] = metadata.title
                     if metadata.author:
-                        citation_info["author"] = metadata.author
+                        initial_citation["author"] = metadata.author
                     if metadata.date:
-                        citation_info["date"] = metadata.date
+                        initial_citation["date"] = metadata.date
                     if metadata.sitename:
-                        citation_info["container-title"] = metadata.sitename
-                    print(f"📝 Trafilatura extraction: {len(citation_info)} fields found")
+                        initial_citation["container-title"] = metadata.sitename
+                    if metadata.description:
+                        initial_citation["abstract"] = metadata.description
+                    if metadata.tags:
+                        initial_citation["keyword"] = ", ".join(metadata.tags)
+                    print(f"📝 Trafilatura found: {initial_citation}")
         except Exception as e:
             logging.warning(f"Trafilatura failed: {e}")
 
-        # Step 2: Check for missing fields and use crawl4ai if necessary
-        missing_fields = [field for field in essential_fields if field not in citation_info]
-        if missing_fields:
-            print(f"⚠️ Missing essential fields: {', '.join(missing_fields)}. Using crawl4ai as fallback...")
-            try:
-                markdown_content = asyncio.run(self._extract_with_crawl4ai(url))
-                if markdown_content:
-                    print("🤖 Step 2a: Extracting missing info with LLM from crawled content...")
-                    llm_extracted_info = self.llm.extract_citation_from_web_markdown(markdown_content)
-                    
-                    # Merge missing fields
-                    for field in missing_fields:
-                        if field in llm_extracted_info and field not in citation_info:
-                            citation_info[field] = llm_extracted_info[field]
-                            print(f"✅ Found missing '{field}' with crawl4ai+LLM.")
-                else:
-                    print("❌ crawl4ai did not return any content.")
-            except Exception as e:
-                logging.error(f"crawl4ai fallback failed: {e}")
-
-        # Step 3: Final check and logging
-        final_missing = [field for field in essential_fields if field not in citation_info]
-        if final_missing:
-            logging.warning(f"Could not extract the following fields: {', '.join(final_missing)}")
+        # Stage 2: LLM-Based Refinement
+        print("🤖 Stage 2: Refining citation with LLM...")
+        refined_info = self.llm.refine_citation_from_web(
+            initial_title=initial_citation.get("title", ""),
+            initial_author=initial_citation.get("author", ""),
+            page_content=page_content,
+            url=url
+        )
         
-        # Step 4: Extract container-title from domain if not provided
-        if "container-title" not in citation_info:
+        if refined_info:
+            print(f"✅ LLM refined data: {refined_info}")
+            initial_citation.update(refined_info)
+        else:
+            print("⚠️ LLM refinement did not return any data.")
+
+        # Finalization: Ensure essential fields have fallbacks
+        if "date" not in initial_citation:
+            # Fallback to extract date from URL
+            import re
+            match = re.search(r'/(\d{4})/(\d{2})/(\d{2})/', url)
+            if match:
+                year, month, day = match.groups()
+                initial_citation["date"] = f"{year}-{month}-{day}"
+                print(f"📅 Fallback: date extracted from URL: {initial_citation['date']}")
+
+        if "container-title" not in initial_citation:
             domain_publisher = extract_publisher_from_domain(url)
             if domain_publisher:
-                citation_info["container-title"] = domain_publisher
-                print(f"🏢 container-title derived from domain: {domain_publisher}")
+                initial_citation["container-title"] = domain_publisher
+                print(f"🏢 Fallback: container-title derived from domain: {domain_publisher}")
 
-        return citation_info
+        return initial_citation
 
     async def _extract_with_crawl4ai(self, url: str) -> str:
         """Crawls a single URL using crawl4ai and returns its markdown content."""
@@ -386,18 +393,79 @@ class CitationExtractor:
             return result.markdown if result else ""
 
     def _extract_media_metadata(self, url: str) -> Dict:
-        """Extract metadata from media URLs (placeholder for future implementation)."""
+        """Extract metadata from media URLs using yt-dlp."""
+        ydl_opts = {
+            'quiet': True,
+            'skip_download': True,
+            'extract_flat': True,  # Faster extraction
+        }
         try:
-            # For now, return basic URL info
-            # Future implementation could use youtube-dl or similar
+            print(f"📹 Extracting media metadata with yt-dlp from: {url}")
+            with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+                info_dict = ydl.extract_info(url, download=False)
+                
+                citation_info = {}
+
+                # --- Map yt-dlp fields to CSL JSON ---
+                # Title
+                if info_dict.get('title'):
+                    citation_info['title'] = info_dict['title']
+
+                # Author (prefer 'uploader' or 'channel')
+                if info_dict.get('uploader'):
+                    citation_info['author'] = info_dict['uploader']
+                elif info_dict.get('channel'):
+                    citation_info['author'] = info_dict['channel']
+
+                # Publication Date (issued)
+                if info_dict.get('upload_date'):
+                    # Format YYYYMMDD to YYYY-MM-DD
+                    date_str = info_dict['upload_date']
+                    try:
+                        citation_info['date'] = datetime.strptime(date_str, '%Y%m%d').strftime('%Y-%m-%d')
+                        citation_info['year'] = datetime.strptime(date_str, '%Y%m%d').strftime('%Y')
+                    except ValueError:
+                        logging.warning(f"Could not parse upload_date: {date_str}")
+
+                # Container Title & Publisher (use the extractor name, e.g., 'YouTube')
+                if info_dict.get('extractor'):
+                    # Capitalize for better presentation (e.g., 'youtube' -> 'YouTube')
+                    platform = info_dict['extractor'].capitalize()
+                    citation_info['container-title'] = platform
+                    citation_info['publisher'] = platform
+
+                # URL
+                if info_dict.get('webpage_url'):
+                    citation_info['url'] = info_dict['webpage_url']
+
+                # Abstract/Description
+                if info_dict.get('description'):
+                    citation_info['abstract'] = info_dict['description']
+
+                # Duration/Dimensions
+                if info_dict.get('duration'):
+                    duration_s = info_dict['duration']
+                    minutes, seconds = divmod(duration_s, 60)
+                    citation_info['dimensions'] = f"{minutes}:{seconds:02d}"
+                
+                # Handle playlist-specific title
+                if info_dict.get('playlist_title') and info_dict.get('title') != info_dict.get('playlist_title'):
+                    # If it's a video within a playlist, we can decide how to represent it.
+                    # For now, we prioritize the video's title but could add playlist to 'note'.
+                    citation_info['note'] = f"From playlist: {info_dict['playlist_title']}"
+
+                print(f"✅ yt-dlp extraction successful. Found {len(citation_info)} fields.")
+                return citation_info
+
+        except Exception as e:
+            logging.error(f"Error extracting media metadata with yt-dlp: {e}")
+            # Fallback to basic info on error
+            print("⚠️ yt-dlp extraction failed. Falling back to basic extraction.")
             return {
                 "title": "Media content from URL",
                 "author": "Unknown",
                 "container-title": extract_publisher_from_domain(url),
             }
-        except Exception as e:
-            logging.error(f"Error extracting media metadata: {e}")
-            return {}
 
     def _analyze_pdf_structure(self, pdf_path: str) -> tuple:
         """Analyze PDF structure using PyMuPDF."""

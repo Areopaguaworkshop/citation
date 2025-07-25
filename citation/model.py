@@ -720,6 +720,39 @@ class ImprovedPageNumberExtractor:
 
 
 
+# Add the new signature for refining web citations
+class FindCitationString(dspy.Signature):
+    """
+    Scans the text to find a specific Chinese citation instruction string.
+    """
+    page_content = dspy.InputField(desc="The full text content of the page.")
+    citation_string = dspy.OutputField(desc="If a string like '若要引用本文，请按以下格式：...' or '引用格式：' is found, return the entire citation string (e.g., 'Maximos神父《心念之病》（伦敦：光从东方来，2025年05月09日）'). Otherwise, return an empty string.")
+
+class ParseCitationString(dspy.Signature):
+    """
+    Parses a structured citation string to extract its components.
+    """
+    citation_string = dspy.InputField(desc="A citation string in the format 'Author《Title》（Location：Publisher，Date）'.")
+    
+    author = dspy.OutputField(desc="The author of the work (e.g., 'Maximos神父').")
+    title = dspy.OutputField(desc="The title of the work (e.g., '心念之病').")
+    publisher = dspy.OutputField(desc="The publisher of the work (e.g., '光从东方来').")
+    publication_date = dspy.OutputField(desc="The publication date in YYYY-MM-DD format.")
+
+class RefineWebCitation(dspy.Signature):
+    """
+    Analyzes webpage content to find the real author, title, and date, following specific rules.
+    This is a multi-step process. First, check for explicit citation instructions, then look for author names in the title, and finally search for author bylines.
+    """
+    initial_title = dspy.InputField(desc="The title extracted by the initial metadata parser.")
+    initial_author = dspy.InputField(desc="The author extracted by the initial parser (e.g., 'Ephremyuan'). This might be a username and not the real author.")
+    page_content = dspy.InputField(desc="The main text content of the page (up to 1500 characters).")
+    url = dspy.InputField(desc="The URL of the webpage, which may contain the date.")
+
+    correct_author = dspy.OutputField(desc="The full name of the author. Follow these rules:\n1. Look for Chinese citation instructions like '引用格式' or '若要引用本文'. Extract the author from there.\n2. Check if the main title includes the author's name (e.g., 'Maximos神父：心念之病').\n3. Look for bylines like 'by [name]' or 'author:' near the top of the content.\n4. If no specific author is found, return the initial_author.")
+    correct_title = dspy.OutputField(desc="The corrected, full title of the article. If the title contains the author, remove the author's name from the title.")
+    publication_date = dspy.OutputField(desc="The publication date in YYYY-MM-DD format. First, check the text for a date. If not found, extract it from the URL.")
+
 class CitationLLM:
     """LLM handler for citation extraction using DSPy."""
 
@@ -728,12 +761,70 @@ class CitationLLM:
         self.llm = get_llm_model(llm_model, temperature=0.1)
         dspy.settings.configure(lm=self.llm)
 
-    def _truncate_text(self, text: str, max_tokens: int = 2048) -> str:
-        """Truncate text to a maximum number of tokens."""
-        tokens = text.split()
-        if len(tokens) > max_tokens:
-            return " ".join(tokens[:max_tokens])
-        return text
+    def _truncate_text(self, text: str, max_chars: int = 1500) -> str:
+        """Truncate text to a maximum number of characters."""
+        return text[:max_chars]
+
+    def refine_citation_from_web_structured(self, page_content: str) -> Dict:
+        """
+        A structured, multi-step process to extract citation info from web content.
+        """
+        try:
+            # Step 1: Find the explicit citation string
+            find_predictor = dspy.Predict(FindCitationString)
+            find_result = find_predictor(page_content=self._truncate_text(page_content, max_chars=2000))
+            
+            if find_result.citation_string:
+                logging.info(f"Found citation string: {find_result.citation_string}")
+                
+                # Step 2: Parse the found string
+                parse_predictor = dspy.Predict(ParseCitationString)
+                parse_result = parse_predictor(citation_string=find_result.citation_string)
+                
+                refined_info = {
+                    "author": parse_result.author,
+                    "title": parse_result.title,
+                    "publisher": parse_result.publisher,
+                    "date": parse_result.publication_date,
+                }
+                return {k: v for k, v in refined_info.items() if v}
+
+            logging.info("No explicit citation string found. Skipping structured extraction.")
+            return {}
+
+        except Exception as e:
+            logging.error(f"Error in structured web citation refinement: {e}")
+            return {}
+
+    def refine_citation_from_web(self, initial_title: str, initial_author: str, page_content: str, url: str) -> Dict:
+        """Refines citation information from a webpage using a dedicated LLM call."""
+        try:
+            # First, try the new structured approach
+            structured_result = self.refine_citation_from_web_structured(page_content)
+            if structured_result:
+                logging.info(f"Structured extraction successful: {structured_result}")
+                return structured_result
+
+            # Fallback to the general refinement if structured approach fails
+            logging.info("Falling back to general web citation refinement.")
+            predictor = dspy.Predict(RefineWebCitation)
+            result = predictor(
+                initial_title=initial_title,
+                initial_author=initial_author,
+                page_content=self._truncate_text(page_content, max_tokens=1500),
+                url=url
+            )
+
+            refined_info = {
+                "author": result.correct_author,
+                "title": result.correct_title,
+                "date": result.publication_date,
+            }
+            # Filter out empty fields
+            return {k: v for k, v in refined_info.items() if v and v.lower() != initial_author.lower()}
+        except Exception as e:
+            logging.error(f"Error refining web citation with LLM: {e}")
+            return {}
 
     def extract_book_citation(self, pdf_text: str) -> Dict:
         """Extract citation from book PDF text."""
@@ -761,6 +852,7 @@ class CitationLLM:
         except Exception as e:
             logging.error(f"Error with book LLM extraction: {e}")
             return {}
+
 
     def extract_thesis_citation(self, pdf_text: str) -> Dict:
         """Extract citation from thesis PDF text."""
@@ -994,16 +1086,18 @@ class CitationLLM:
             logging.warning(f"Unknown document type: {doc_type}, using book extraction")
             return self.extract_book_citation(truncated_text)
 
-    def extract_citation_from_web_markdown(self, markdown_text: str) -> Dict:
-        """Extracts citation fields from the markdown content of a webpage."""
+    def extract_citation_from_text_url(self, markdown_text: str) -> Dict:
+        """Extracts citation fields from the markdown content of a text-based URL."""
         try:
             signature = dspy.Signature(
                 "markdown_content -> title, author, date, container_title",
-                "Analyze the markdown content of a webpage to extract citation information. "
-                "Pay close attention to the main title, author by lines, and publication dates in first 600 words. "
+                "Analyze the markdown content of a webpage to find the real author and title. "
+                "Follow these rules in order: "
+                "1. Check if the main title includes the author's name (e.g., 'Author Name: Article Title' or '博士 Author Name: Article Title'). If so, separate them. "
+                "2. Look for explicit author tags like 'by [name]' or 'posted by [name]' near the top of the content. "
+                "3. Search for Chinese citation blocks starting with '引用', '引用此文', or '以下格式：' and look for a title enclosed in `《...》` and the author nearby. "
                 "The 'container-title' is the name of the overall website. "
-                "Also, look for explicit citation hints like 'how to cite', '引用', '引用格式', '格式', '格式如下', '凡例'. "
-                "Return 'Unknown' for any fields that cannot be found.",
+                "Prioritize information found with these rules. Return 'Unknown' for any fields that cannot be found.",
             )
 
             predictor = dspy.Predict(signature)
@@ -1014,11 +1108,11 @@ class CitationLLM:
                 if value and value.strip() and value.strip().lower() != "unknown":
                     citation_info[key] = value.strip()
 
-            logging.info(f"LLM extraction from web markdown result: {citation_info}")
+            logging.info(f"LLM extraction from text URL result: {citation_info}")
             return citation_info
 
         except Exception as e:
-            logging.error(f"Error with web markdown LLM extraction: {e}")
+            logging.error(f"Error with text URL LLM extraction: {e}")
             return {}
 
     def parse_search_results(self, search_response: str) -> Dict:

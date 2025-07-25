@@ -374,6 +374,12 @@ def clean_url(url: str) -> str:
         return url
 
 
+# Patterns for author titles/honorifics in English and Chinese
+AUTHOR_TITLES = [
+    "Dr.", "Fr.", "Professor", "Prof.",
+    "博士", "神父", "教授", "老师", "先生"
+]
+
 def format_author_csl(author_name: str) -> list:
     """Formats an author string into a CSL-JSON compliant list of objects."""
     from pypinyin import pinyin, Style
@@ -382,81 +388,72 @@ def format_author_csl(author_name: str) -> list:
         return []
 
     authors = []
-    # Regex to check for CJK characters (Chinese, Japanese, Korean)
-    def is_cjk(s): return re.search(
-        r"[\u4e00-\u9fff\u3040-\u30ff\uac00-\ud7af]", s)
+    # Regex to check for CJK and Latin characters
+    def is_cjk(s): return re.search(r"[\u4e00-\u9fff\u3040-\u30ff\uac00-\ud7af]", s)
+    def is_latin(s): return re.search(r"[a-zA-Z]", s)
 
-    # Step 1: Smart Separation
-    # Normalize primary delimiters to a standard comma
+    # Step 1: Smart Separation for multiple authors
     processed_author_name = re.sub(r"[\n;,、]", ",", author_name)
+    # Add a comma between CJK characters and Latin characters to help splitting
+    processed_author_name = re.sub(r'([\u4e00-\u9fff])\s+([a-zA-Z])', r'\1,\2', processed_author_name)
+    processed_author_name = re.sub(r'([a-zA-Z])\s+([\u4e00-\u9fff])', r'\1,\2', processed_author_name)
+    # Add a comma between CJK names separated by space
+    processed_author_name = re.sub(r'([\u4e00-\u9fff]{2,})\s+([\u4e00-\u9fff]{2,})', r'\1,\2', processed_author_name)
 
-    # Split by the standard comma first
-    name_parts = processed_author_name.split(",")
 
-    final_name_list = []
-    for part in name_parts:
-        part = part.strip()
-        if not part:
-            continue
-        # If the part contains CJK characters, also split by space
-        if is_cjk(part):
-            final_name_list.extend(part.split())
-        else:
-            # For English names, also split by 'and'
-            final_name_list.extend(
-                re.split(r"\s+and\s+", part, flags=re.IGNORECASE))
+    name_parts = re.split(r'\s+and\s+|,', processed_author_name, flags=re.IGNORECASE)
 
     # Step 2: Formatting Individual Names
-    for name in final_name_list:
+    for name in name_parts:
         name = name.strip()
         if not name:
             continue
 
-        if is_cjk(name):
+        # Step 2a: Extract Suffix/Title
+        suffix = None
+        for title in AUTHOR_TITLES:
+            if name.endswith(f" {title}") or name.endswith(title):
+                suffix = title
+                name = name[:-len(title)].strip()
+                break
+        
+        author_obj = {}
+
+        # Step 2b: Parse the name
+        if is_cjk(name) and not is_latin(name): # Pure CJK name
             literal_name = name
-            # CJK name parsing logic
-            if len(name) in [2, 3, 4]:  # Common lengths for CJK names
+            if len(name) in [2, 3, 4]:
                 family = name[0]
                 given = name[1:]
-                if len(name) == 4:  # Handle two-character family names
+                if len(name) == 4:
                     family = name[:2]
                     given = name[2:]
-            else:  # Fallback for other lengths
+            else:
                 family = name[0]
                 given = name[1:]
-
-            # Convert to Pinyin for Chinese names if possible, otherwise keep literal
+            
             try:
-                family_pinyin = "".join(
-                    item[0] for item in pinyin(family, style=Style.NORMAL)
-                ).title()
-                given_pinyin = "".join(
-                    item[0] for item in pinyin(given, style=Style.NORMAL)
-                ).title()
-                authors.append(
-                    {
-                        "family": family_pinyin,
-                        "given": given_pinyin,
-                        "literal": literal_name,
-                    }
-                )
+                family_pinyin = "".join(item[0] for item in pinyin(family, style=Style.NORMAL)).title()
+                given_pinyin = "".join(item[0] for item in pinyin(given, style=Style.NORMAL)).title()
+                author_obj = {"family": family_pinyin, "given": given_pinyin, "literal": literal_name}
             except:
-                authors.append(
-                    {"literal": literal_name}
-                )  # Fallback for non-Chinese CJK names
-        else:
-            # Western name parsing logic
+                author_obj = {"literal": literal_name}
+        else: # Western or mixed-language name
             parts = name.split()
             if len(parts) >= 2:
                 family = parts[-1]
                 given = " ".join(parts[:-1])
-                authors.append({"family": family, "given": given})
+                author_obj = {"family": family, "given": given}
             else:
-                authors.append(
-                    {"literal": name}
-                )  # Treat as a single literal name if structure is unclear
+                author_obj = {"literal": name}
+
+        if suffix:
+            author_obj["suffix"] = suffix
+        
+        authors.append(author_obj)
 
     return authors
+
 
 
 def to_csl_json(data: Dict, doc_type: str) -> Dict:
@@ -485,16 +482,19 @@ def to_csl_json(data: Dict, doc_type: str) -> Dict:
         csl["editor"] = format_author_csl(data["editor"])
 
     # 3. Format Dates
-    if "year" in data:
+    if "date" in data or "year" in data:
         try:
             # Attempt to parse a full date if available, otherwise just use year
-            date_parts = [
-                int(p) for p in str(data.get("date", data["year"])).split("-")
-            ]
+            date_str = str(data.get("date", data.get("year")))
+            date_parts = [int(p) for p in date_str.split("-")]
             csl["issued"] = {"date-parts": [date_parts]}
-        except:
-            csl["issued"] = {"date-parts": [[int(data["year"])]]}
-
+        except (ValueError, TypeError):
+            if "year" in data:
+                try:
+                    csl["issued"] = {"date-parts": [[int(data["year"])]]}
+                except (ValueError, TypeError):
+                    pass # Ignore if year is not a valid integer
+    
     if "date_accessed" in data:
         try:
             date_parts = [int(p) for p in data["date_accessed"].split("-")]
@@ -515,6 +515,8 @@ def to_csl_json(data: Dict, doc_type: str) -> Dict:
         "doi": "DOI",
         "isbn": "ISBN",
         "genre": "genre",
+        "abstract": "abstract",
+        "keyword": "keyword",
     }
     for old_key, new_key in field_mapping.items():
         if old_key in data:

@@ -1,6 +1,6 @@
 [project]
 name = "cite-extractor"
-version = "0.10.4"
+version = "0.10.5"
 description = "Extracts citations from PDF, URLs and local media files in CSL-JSON. "
 authors = [{ name = "ajia", email = "yyjfwoaini@gmail.com" }]
 dependencies = [
@@ -16,6 +16,7 @@ dependencies = [
   "pypinyin>=0.51.0",
   "citeproc-py>=0.7.0",
   "crawl4ai>=0.7.0",
+  "yt-dlp>=2025.7.21",
 ]
 readme = "README.md"
 requires-python = ">= 3.12"

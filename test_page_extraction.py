@@ -7,6 +7,7 @@ import logging
 import sys
 import os
 from pathlib import Path
+import pytest
 
 # Add the project root to Python path
 sys.path.insert(0, str(Path(__file__).parent))
@@ -19,7 +20,14 @@ logging.basicConfig(
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
 )
 
-def test_page_extraction(pdf_path: str):
+# This test requires a specific PDF file and is intended for manual runs.
+# It is skipped by default in the automated test suite.
+# To run this test:
+# 1. Make sure you have a PDF file for testing.
+# 2. Run from the command line:
+#    python test_page_extraction.py /path/to/your/pdf_file.pdf
+@pytest.mark.skip(reason="Manual test that requires a specific PDF file path.")
+def test_page_extraction_manual(pdf_path: str):
     """Test the enhanced page number extraction"""
     
     if not os.path.exists(pdf_path):
@@ -87,5 +95,13 @@ if __name__ == "__main__":
         print("Example: python test_page_extraction.py /path/to/Bai-Yudong-白玉冬-2018-丝路景教与汪古渊流.pdf")
         sys.exit(1)
     
-    pdf_path = sys.argv[1]
-    test_page_extraction(pdf_path)
+    pdf_path_arg = sys.argv[1]
+    
+    # We define a simple function to call the test function
+    # so that pytest does not try to run it directly.
+    def run_manual_test():
+        # Since the test function is marked as skipped, we call it directly here
+        # for the manual run. We need to unwrap it from the pytest marker.
+        test_page_extraction_manual.__wrapped__(pdf_path_arg)
+
+    run_manual_test()

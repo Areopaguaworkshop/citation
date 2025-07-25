@@ -64,7 +64,7 @@ charset-normalizer==3.4.2
     # via requests
     # via trafilatura
 citeproc-py==0.8.2
-    # via citation
+    # via cite-extractor
 click==8.2.1
     # via alphashape
     # via click-log
@@ -82,7 +82,7 @@ courlan==1.3.2
 coverage==7.9.2
     # via pytest-cov
 crawl4ai==0.7.1
-    # via citation
+    # via cite-extractor
 cryptography==45.0.5
     # via pdfminer-six
     # via pyopenssl
@@ -106,7 +106,7 @@ distro==1.9.0
 dspy==2.6.27
     # via dspy-ai
 dspy-ai==2.6.27
-    # via citation
+    # via cite-extractor
 fake-http-header==0.3.5
     # via tf-playwright-stealth
 fake-useragent==2.2.0
@@ -185,7 +185,7 @@ litellm==1.74.3
     # via crawl4ai
     # via dspy
 lxml==5.4.0
-    # via citation
+    # via cite-extractor
     # via citeproc-py
     # via crawl4ai
     # via htmldate
@@ -266,7 +266,7 @@ nvidia-nvjitlink-cu12==12.6.85
 nvidia-nvtx-cu12==12.6.77
     # via torch
 ocrmypdf==16.10.4
-    # via citation
+    # via cite-extractor
 openai==1.95.1
     # via dspy
     # via litellm
@@ -326,20 +326,20 @@ pyee==13.0.0
 pygments==2.19.1
     # via rich
 pymediainfo==7.0.1
-    # via citation
+    # via cite-extractor
 pymupdf==1.26.3
-    # via citation
+    # via cite-extractor
 pyopenssl==25.1.0
     # via crawl4ai
 pyperclip==1.9.0
     # via crawl4ai
 pypinyin==0.54.0
-    # via citation
+    # via cite-extractor
 pytest==8.3.5
     # via pytest-cov
 pytest-cov==6.2.1
 python-dateutil==2.9.0.post0
-    # via citation
+    # via cite-extractor
     # via dateparser
     # via htmldate
     # via pandas
@@ -366,7 +366,7 @@ regex==2024.11.6
     # via tiktoken
     # via transformers
 requests==2.32.4
-    # via citation
+    # via cite-extractor
     # via crawl4ai
     # via datasets
     # via dspy
@@ -437,7 +437,7 @@ tqdm==4.67.1
     # via sentence-transformers
     # via transformers
 trafilatura==2.0.0
-    # via citation
+    # via cite-extractor
 transformers==4.53.2
     # via sentence-transformers
 trimesh==4.7.1
@@ -470,7 +470,7 @@ tzlocal==5.3.1
 ujson==5.10.0
     # via dspy
 urllib3==2.5.0
-    # via citation
+    # via cite-extractor
     # via courlan
     # via htmldate
     # via requests
@@ -482,5 +482,7 @@ xxhash==3.5.0
     # via datasets
 yarl==1.20.1
     # via aiohttp
+yt-dlp==2025.7.21
+    # via cite-extractor
 zipp==3.23.0
     # via importlib-metadata
