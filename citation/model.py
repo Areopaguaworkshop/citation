@@ -593,6 +593,19 @@ class ImprovedPageNumberExtractor:
         
         enhanced_sequence = sequence.copy()
         
+        # Deduce backwards from the first known page
+        sorted_keys = sorted(enhanced_sequence.keys())
+        if sorted_keys:
+            first_known_pdf_page = sorted_keys[0]
+            first_known_page_num = enhanced_sequence[first_known_pdf_page]
+            self.logger.debug(f"First known for backward deduction: PDF page {first_known_pdf_page+1} = page number {first_known_page_num}")
+
+            for pdf_page_idx in range(first_known_pdf_page - 1, -1, -1):
+                if pdf_page_idx not in enhanced_sequence:
+                    deduced_page_num = first_known_page_num - (first_known_pdf_page - pdf_page_idx)
+                    enhanced_sequence[pdf_page_idx] = deduced_page_num
+                    self.logger.info(f"Deduced backwards: PDF page {pdf_page_idx+1} = page number {deduced_page_num}")
+
         # If we have pages in last_pages, deduce from the highest known page
         if last_pages:
             # Find the highest PDF page with a known number that's in or before last_pages
