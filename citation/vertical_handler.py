@@ -208,7 +208,7 @@ def extract_text_from_images_paddleocr(images: List[fitz.Pixmap], lang: str) -> 
         if is_page_blank(pix):
             continue
 
-        img_array = np.frombuffer(pix.samples, dtype=np.uint8).reshape(pix.height, pix.width, 3)
+        img_array = np.frombuffer(pix.samples, dtype=np.uint8).reshape(pix.height, pix.width, 3).copy()
         # Use the predict method with the correct API
         result = engine.predict(img_array)
 

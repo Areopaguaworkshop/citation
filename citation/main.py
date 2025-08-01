@@ -149,6 +149,12 @@ class CitationExtractor:
                 page_count_hint = "journal"  # Default preference
                 print(f"📋 Page count <70: Will choose between JOURNAL or BOOKCHAPTER")
 
+            # Adjust page range based on total pages
+            if num_pages >= 70:
+                page_range = "1-5"
+            else:
+                page_range = "1-3, -3"
+
             # Step 3: Create subset PDF from page range
             print(f"✂️ Step 3: Creating temporary PDF from page range '{page_range}'...")
             temp_pdf_path = create_subset_pdf(input_pdf_path, page_range, num_pages)

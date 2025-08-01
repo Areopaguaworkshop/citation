@@ -141,7 +141,1082 @@ class VerticalCitationLLM(CitationLLM):
             text = re.sub(dynasty_pattern, '', text)
         
         # Extract role indicators (撰, 著, 注, 編, etc.)
-        role_pattern = r'([撰著注註編輯譯序跋])$'
+        role_pattern = r'(集撰|[撰著注註編輯譯序跋])'
+
+        # Extract role from the text
+        role_match = re.search(role_pattern, text)
+        if role_match:
+            role = role_match.group(1)
+            text = re.sub(role_pattern, "", text)
+        
+        # Handle dynasties without brackets (e.g., "宋朱熹")
+        # Common Chinese dynasties
+        dynasties = ["秦", "漢", "晉", "隋", "唐", "宋", "元", "明", "清", "民國"]
+        for dyn in dynasties:
+            if text.startswith(dyn):
+                dynasty = dyn
+                text = text[len(dyn):]
+                break
+        
+        # Clean up the remaining text as author name
+        author_name = text.strip()
+        
+        return dynasty, author_name, role
+    
+    def convert_chinese_japanese_year(self, year_str: str) -> str:
+        """Convert Chinese/Japanese year formats to Arabic numerals"""
+        if not year_str or not isinstance(year_str, str):
+            return ""
+        
+        year_str = year_str.strip()
+        
+        if re.match(r'^\d{4}$', year_str):
+            return year_str
+        
+        try:
+            # Chinese numerals to Arabic mapping
+            chinese_nums = {
+                '〇': '0', '零': '0', '一': '1', '二': '2', '三': '3', '四': '4',
+                '五': '5', '六': '6', '七': '7', '八': '8', '九': '9'
+            }
+            
+            # Handle format like 一九六二年
+            if re.match(r'^[〇零一二三四五六七八九]{4}年?$', year_str):
+                converted = year_str.replace('年', '')
+                for chinese, arabic in chinese_nums.items():
+                    converted = converted.replace(chinese, arabic)
+                return converted
+            
+            # Handle Taiwan 民國 format
+            minguo_match = re.match(r'民國([〇零一二三四五六七八九十百]{1,3})年?', year_str)
+            if minguo_match:
+                minguo_year = minguo_match.group(1)
+                minguo_arabic = self.convert_chinese_number_to_arabic(minguo_year)
+                return str(1911 + int(minguo_arabic))
+            
+            # Handle Japanese era formats
+            japanese_eras = {
+                '明治': 1868, '大正': 1912, '昭和': 1926, '平成': 1989, '令和': 2019
+            }
+            
+            for era, base_year in japanese_eras.items():
+                era_pattern = f'{era}([〇零一二三四五六七八九十百]{{1,3}})年?'
+                era_match = re.match(era_pattern, year_str)
+                if era_match:
+                    era_year = era_match.group(1)
+                    era_arabic = self.convert_chinese_number_to_arabic(era_year)
+                    return str(base_year + int(era_arabic) - 1)
+            
+            return year_str  # Return original if conversion fails
+            
+        except Exception as e:
+            print(f"⚠️ Year conversion failed for '{year_str}': {e}")
+            return year_str
+    
+    def convert_chinese_number_to_arabic(self, chinese_num: str) -> str:
+        """Convert Chinese number to Arabic (handles up to hundreds)"""
+        if not chinese_num:
+            return "0"
+        
+        # Simple mapping for basic numbers
+        chinese_nums = {
+            '〇': 0, '零': 0, '一': 1, '二': 2, '三': 3, '四': 4,
+            '五': 5, '六': 6, '七': 7, '八': 8, '九': 9, '十': 10
+        }
+        
+        # Handle simple cases first
+        if chinese_num in chinese_nums:
+            return str(chinese_nums[chinese_num])
+        
+        # Handle compound numbers like 十五, 二十三, etc.
+        result = 0
+        current = 0
+        
+        for char in chinese_num:
+            if char == '十':
+                if current == 0:
+                    current = 1
+                result += current * 10
+                current = 0
+            elif char == '百':
+                result += current * 100
+                current = 0
+            elif char in chinese_nums:
+                current = chinese_nums[char]
+        
+        result += current
+        return str(result)
+
+    def validate_title_vs_series(self, extracted_result) -> Dict:
+        """Validate and correct title vs series extraction"""
+        title = extracted_result.get("title", "")
+        series = extracted_result.get("series", "")
+        
+        # Common series patterns that should NOT be the main title
+        series_patterns = [
+            "新編諸子集成", "四部叢刊", "古籍集成", "叢書", "文庫", "全集", "集成",
+            "第一輯", "第二輯", "第三輯", "新編", "續編", "補編"
+        ]
+        
+        # If title contains series pattern and series is empty, swap them
+        if title and not series:
+            for pattern in series_patterns:
+                if pattern in title:
+                    # Try to extract the real title and series
+                    if ")" in title or "）" in title:
+                        # Format like "新編諸子集成(第一輯)"
+                        parts = title.replace(")", "）").split("）")
+                        if len(parts) >= 2:
+                            extracted_result["series"] = parts[0].replace("(", "").replace("（", "")
+                            # Look for actual book title in the remaining text
+                            # This would need more sophisticated parsing
+                            break
+                    elif any(char.isdigit() or char in "一二三四五六七八九十" for char in title):
+                        # Title contains numbers, likely a series
+                        extracted_result["series"] = title
+                        extracted_result["title"] = ""  # Clear incorrect title
+                        break
+        
+        return extracted_result
+
+    def create_enhanced_prompt(self, text: str) -> str:
+        """Create an enhanced prompt with examples for title vs series distinction"""
+        examples = """
+EXAMPLES of correct title vs series extraction:
+
+Example 1:
+Text: "新編諸子集成 四書章句集註 朱熹撰"
+Correct extraction:
+- title: "四書章句集註" (actual book)
+- series: "新編諸子集成" (collection name)
+- author: "朱熹撰"
+
+Example 2:  
+Text: "四部叢刊 論語集注 程颐注"
+Correct extraction:
+- title: "論語集注" (actual book)
+- series: "四部叢刊" (collection name)
+- author: "程颐注"
+
+WRONG extraction would be:
+- title: "新編諸子集成" (this is the series, not the book title!)
+
+Now extract from this text:
+"""
+        return examples + "\n" + text
+
+        role_match = re.search(role_pattern, text)
+        if role_match:
+            role = role_match.group(1)
+            text = re.sub(role_pattern, '', text)
+        
+        # Remaining text is the author name
+        author_name = text.strip()
+        
+        return dynasty, author_name, role
+    
+    def convert_chinese_japanese_year(self, year_str: str) -> str:
+        """Convert Chinese/Japanese year formats to Arabic numerals"""
+        if not year_str or not isinstance(year_str, str):
+            return ""
+        
+        year_str = year_str.strip()
+        
+        if re.match(r'^\d{4}$', year_str):
+            return year_str
+        
+        try:
+            # Chinese numerals to Arabic mapping
+            chinese_nums = {
+                '〇': '0', '零': '0', '一': '1', '二': '2', '三': '3', '四': '4',
+                '五': '5', '六': '6', '七': '7', '八': '8', '九': '9'
+            }
+            
+            # Handle format like 一九六二年
+            if re.match(r'^[〇零一二三四五六七八九]{4}年?$', year_str):
+                converted = year_str.replace('年', '')
+                for chinese, arabic in chinese_nums.items():
+                    converted = converted.replace(chinese, arabic)
+                return converted
+            
+            # Handle Taiwan 民國 format
+            minguo_match = re.match(r'民國([〇零一二三四五六七八九十百]{1,3})年?', year_str)
+            if minguo_match:
+                minguo_year = minguo_match.group(1)
+                minguo_arabic = self.convert_chinese_number_to_arabic(minguo_year)
+                return str(1911 + int(minguo_arabic))
+            
+            # Handle Japanese era formats
+            japanese_eras = {
+                '明治': 1868, '大正': 1912, '昭和': 1926, '平成': 1989, '令和': 2019
+            }
+            
+            for era, base_year in japanese_eras.items():
+                era_pattern = f'{era}([〇零一二三四五六七八九十百]{{1,3}})年?'
+                era_match = re.match(era_pattern, year_str)
+                if era_match:
+                    era_year = era_match.group(1)
+                    era_arabic = self.convert_chinese_number_to_arabic(era_year)
+                    return str(base_year + int(era_arabic) - 1)
+            
+            return year_str  # Return original if conversion fails
+            
+        except Exception as e:
+            print(f"⚠️ Year conversion failed for '{year_str}': {e}")
+            return year_str
+    
+    def convert_chinese_number_to_arabic(self, chinese_num: str) -> str:
+        """Convert Chinese number to Arabic (handles up to hundreds)"""
+        if not chinese_num:
+            return "0"
+        
+        # Simple mapping for basic numbers
+        chinese_nums = {
+            '〇': 0, '零': 0, '一': 1, '二': 2, '三': 3, '四': 4,
+            '五': 5, '六': 6, '七': 7, '八': 8, '九': 9, '十': 10
+        }
+        
+        # Handle simple cases first
+        if chinese_num in chinese_nums:
+            return str(chinese_nums[chinese_num])
+        
+        # Handle compound numbers like 十五, 二十三, etc.
+        result = 0
+        current = 0
+        
+        for char in chinese_num:
+            if char == '十':
+                if current == 0:
+                    current = 1
+                result += current * 10
+                current = 0
+            elif char == '百':
+                result += current * 100
+                current = 0
+            elif char in chinese_nums:
+                current = chinese_nums[char]
+        
+        result += current
+        return str(result)
+
+    def validate_title_vs_series(self, extracted_result) -> Dict:
+        """Validate and correct title vs series extraction"""
+        title = extracted_result.get("title", "")
+        series = extracted_result.get("series", "")
+        
+        # Common series patterns that should NOT be the main title
+        series_patterns = [
+            "新編諸子集成", "四部叢刊", "古籍集成", "叢書", "文庫", "全集", "集成",
+            "第一輯", "第二輯", "第三輯", "新編", "續編", "補編"
+        ]
+        
+        # If title contains series pattern and series is empty, swap them
+        if title and not series:
+            for pattern in series_patterns:
+                if pattern in title:
+                    # Try to extract the real title and series
+                    if ")" in title or "）" in title:
+                        # Format like "新編諸子集成(第一輯)"
+                        parts = title.replace(")", "）").split("）")
+                        if len(parts) >= 2:
+                            extracted_result["series"] = parts[0].replace("(", "").replace("（", "")
+                            # Look for actual book title in the remaining text
+                            # This would need more sophisticated parsing
+                            break
+                    elif any(char.isdigit() or char in "一二三四五六七八九十" for char in title):
+                        # Title contains numbers, likely a series
+                        extracted_result["series"] = title
+                        extracted_result["title"] = ""  # Clear incorrect title
+                        break
+        
+        return extracted_result
+
+    def create_enhanced_prompt(self, text: str) -> str:
+        """Create an enhanced prompt with examples for title vs series distinction"""
+        examples = """
+EXAMPLES of correct title vs series extraction:
+
+Example 1:
+Text: "新編諸子集成 四書章句集註 朱熹撰"
+Correct extraction:
+- title: "四書章句集註" (actual book)
+- series: "新編諸子集成" (collection name)
+- author: "朱熹撰"
+
+Example 2:  
+Text: "四部叢刊 論語集注 程颐注"
+Correct extraction:
+- title: "論語集注" (actual book)
+- series: "四部叢刊" (collection name)
+- author: "程颐注"
+
+WRONG extraction would be:
+- title: "新編諸子集成" (this is the series, not the book title!)
+
+Now extract from this text:
+"""
+        return examples + "\n" + text
+
+        role_match = re.search(role_pattern, text)
+        if role_match:
+            role = role_match.group(1)
+            text = re.sub(role_pattern, '', text)
+        
+        # Remaining text is the author name
+        author_name = text.strip()
+        
+        return dynasty, author_name, role
+    
+    def convert_chinese_japanese_year(self, year_str: str) -> str:
+        """Convert Chinese/Japanese year formats to Arabic numerals"""
+        if not year_str or not isinstance(year_str, str):
+            return ""
+        
+        year_str = year_str.strip()
+        
+        if re.match(r'^\d{4}$', year_str):
+            return year_str
+        
+        try:
+            # Chinese numerals to Arabic mapping
+            chinese_nums = {
+                '〇': '0', '零': '0', '一': '1', '二': '2', '三': '3', '四': '4',
+                '五': '5', '六': '6', '七': '7', '八': '8', '九': '9'
+            }
+            
+            # Handle format like 一九六二年
+            if re.match(r'^[〇零一二三四五六七八九]{4}年?$', year_str):
+                converted = year_str.replace('年', '')
+                for chinese, arabic in chinese_nums.items():
+                    converted = converted.replace(chinese, arabic)
+                return converted
+            
+            # Handle Taiwan 民國 format
+            minguo_match = re.match(r'民國([〇零一二三四五六七八九十百]{1,3})年?', year_str)
+            if minguo_match:
+                minguo_year = minguo_match.group(1)
+                minguo_arabic = self.convert_chinese_number_to_arabic(minguo_year)
+                return str(1911 + int(minguo_arabic))
+            
+            # Handle Japanese era formats
+            japanese_eras = {
+                '明治': 1868, '大正': 1912, '昭和': 1926, '平成': 1989, '令和': 2019
+            }
+            
+            for era, base_year in japanese_eras.items():
+                era_pattern = f'{era}([〇零一二三四五六七八九十百]{{1,3}})年?'
+                era_match = re.match(era_pattern, year_str)
+                if era_match:
+                    era_year = era_match.group(1)
+                    era_arabic = self.convert_chinese_number_to_arabic(era_year)
+                    return str(base_year + int(era_arabic) - 1)
+            
+            return year_str  # Return original if conversion fails
+            
+        except Exception as e:
+            print(f"⚠️ Year conversion failed for '{year_str}': {e}")
+            return year_str
+    
+    def convert_chinese_number_to_arabic(self, chinese_num: str) -> str:
+        """Convert Chinese number to Arabic (handles up to hundreds)"""
+        if not chinese_num:
+            return "0"
+        
+        # Simple mapping for basic numbers
+        chinese_nums = {
+            '〇': 0, '零': 0, '一': 1, '二': 2, '三': 3, '四': 4,
+            '五': 5, '六': 6, '七': 7, '八': 8, '九': 9, '十': 10
+        }
+        
+        # Handle simple cases first
+        if chinese_num in chinese_nums:
+            return str(chinese_nums[chinese_num])
+        
+        # Handle compound numbers like 十五, 二十三, etc.
+        result = 0
+        current = 0
+        
+        for char in chinese_num:
+            if char == '十':
+                if current == 0:
+                    current = 1
+                result += current * 10
+                current = 0
+            elif char == '百':
+                result += current * 100
+                current = 0
+            elif char in chinese_nums:
+                current = chinese_nums[char]
+        
+        result += current
+        return str(result)
+
+    def validate_title_vs_series(self, extracted_result) -> Dict:
+        """Validate and correct title vs series extraction"""
+        title = extracted_result.get("title", "")
+        series = extracted_result.get("series", "")
+        
+        # Common series patterns that should NOT be the main title
+        series_patterns = [
+            "新編諸子集成", "四部叢刊", "古籍集成", "叢書", "文庫", "全集", "集成",
+            "第一輯", "第二輯", "第三輯", "新編", "續編", "補編"
+        ]
+        
+        # If title contains series pattern and series is empty, swap them
+        if title and not series:
+            for pattern in series_patterns:
+                if pattern in title:
+                    # Try to extract the real title and series
+                    if ")" in title or "）" in title:
+                        # Format like "新編諸子集成(第一輯)"
+                        parts = title.replace(")", "）").split("）")
+                        if len(parts) >= 2:
+                            extracted_result["series"] = parts[0].replace("(", "").replace("（", "")
+                            # Look for actual book title in the remaining text
+                            # This would need more sophisticated parsing
+                            break
+                    elif any(char.isdigit() or char in "一二三四五六七八九十" for char in title):
+                        # Title contains numbers, likely a series
+                        extracted_result["series"] = title
+                        extracted_result["title"] = ""  # Clear incorrect title
+                        break
+        
+        return extracted_result
+
+    def create_enhanced_prompt(self, text: str) -> str:
+        """Create an enhanced prompt with examples for title vs series distinction"""
+        examples = """
+EXAMPLES of correct title vs series extraction:
+
+Example 1:
+Text: "新編諸子集成 四書章句集註 朱熹撰"
+Correct extraction:
+- title: "四書章句集註" (actual book)
+- series: "新編諸子集成" (collection name)
+- author: "朱熹撰"
+
+Example 2:  
+Text: "四部叢刊 論語集注 程颐注"
+Correct extraction:
+- title: "論語集注" (actual book)
+- series: "四部叢刊" (collection name)
+- author: "程颐注"
+
+WRONG extraction would be:
+- title: "新編諸子集成" (this is the series, not the book title!)
+
+Now extract from this text:
+"""
+        return examples + "\n" + text
+
+        role_match = re.search(role_pattern, text)
+        if role_match:
+            role = role_match.group(1)
+            text = re.sub(role_pattern, '', text)
+        
+        # Remaining text is the author name
+        author_name = text.strip()
+        
+        return dynasty, author_name, role
+    
+    def convert_chinese_japanese_year(self, year_str: str) -> str:
+        """Convert Chinese/Japanese year formats to Arabic numerals"""
+        if not year_str or not isinstance(year_str, str):
+            return ""
+        
+        year_str = year_str.strip()
+        
+        if re.match(r'^\d{4}$', year_str):
+            return year_str
+        
+        try:
+            # Chinese numerals to Arabic mapping
+            chinese_nums = {
+                '〇': '0', '零': '0', '一': '1', '二': '2', '三': '3', '四': '4',
+                '五': '5', '六': '6', '七': '7', '八': '8', '九': '9'
+            }
+            
+            # Handle format like 一九六二年
+            if re.match(r'^[〇零一二三四五六七八九]{4}年?$', year_str):
+                converted = year_str.replace('年', '')
+                for chinese, arabic in chinese_nums.items():
+                    converted = converted.replace(chinese, arabic)
+                return converted
+            
+            # Handle Taiwan 民國 format
+            minguo_match = re.match(r'民國([〇零一二三四五六七八九十百]{1,3})年?', year_str)
+            if minguo_match:
+                minguo_year = minguo_match.group(1)
+                minguo_arabic = self.convert_chinese_number_to_arabic(minguo_year)
+                return str(1911 + int(minguo_arabic))
+            
+            # Handle Japanese era formats
+            japanese_eras = {
+                '明治': 1868, '大正': 1912, '昭和': 1926, '平成': 1989, '令和': 2019
+            }
+            
+            for era, base_year in japanese_eras.items():
+                era_pattern = f'{era}([〇零一二三四五六七八九十百]{{1,3}})年?'
+                era_match = re.match(era_pattern, year_str)
+                if era_match:
+                    era_year = era_match.group(1)
+                    era_arabic = self.convert_chinese_number_to_arabic(era_year)
+                    return str(base_year + int(era_arabic) - 1)
+            
+            return year_str  # Return original if conversion fails
+            
+        except Exception as e:
+            print(f"⚠️ Year conversion failed for '{year_str}': {e}")
+            return year_str
+    
+    def convert_chinese_number_to_arabic(self, chinese_num: str) -> str:
+        """Convert Chinese number to Arabic (handles up to hundreds)"""
+        if not chinese_num:
+            return "0"
+        
+        # Simple mapping for basic numbers
+        chinese_nums = {
+            '〇': 0, '零': 0, '一': 1, '二': 2, '三': 3, '四': 4,
+            '五': 5, '六': 6, '七': 7, '八': 8, '九': 9, '十': 10
+        }
+        
+        # Handle simple cases first
+        if chinese_num in chinese_nums:
+            return str(chinese_nums[chinese_num])
+        
+        # Handle compound numbers like 十五, 二十三, etc.
+        result = 0
+        current = 0
+        
+        for char in chinese_num:
+            if char == '十':
+                if current == 0:
+                    current = 1
+                result += current * 10
+                current = 0
+            elif char == '百':
+                result += current * 100
+                current = 0
+            elif char in chinese_nums:
+                current = chinese_nums[char]
+        
+        result += current
+        return str(result)
+
+    def validate_title_vs_series(self, extracted_result) -> Dict:
+        """Validate and correct title vs series extraction"""
+        title = extracted_result.get("title", "")
+        series = extracted_result.get("series", "")
+        
+        # Common series patterns that should NOT be the main title
+        series_patterns = [
+            "新編諸子集成", "四部叢刊", "古籍集成", "叢書", "文庫", "全集", "集成",
+            "第一輯", "第二輯", "第三輯", "新編", "續編", "補編"
+        ]
+        
+        # If title contains series pattern and series is empty, swap them
+        if title and not series:
+            for pattern in series_patterns:
+                if pattern in title:
+                    # Try to extract the real title and series
+                    if ")" in title or "）" in title:
+                        # Format like "新編諸子集成(第一輯)"
+                        parts = title.replace(")", "）").split("）")
+                        if len(parts) >= 2:
+                            extracted_result["series"] = parts[0].replace("(", "").replace("（", "")
+                            # Look for actual book title in the remaining text
+                            # This would need more sophisticated parsing
+                            break
+                    elif any(char.isdigit() or char in "一二三四五六七八九十" for char in title):
+                        # Title contains numbers, likely a series
+                        extracted_result["series"] = title
+                        extracted_result["title"] = ""  # Clear incorrect title
+                        break
+        
+        return extracted_result
+
+    def create_enhanced_prompt(self, text: str) -> str:
+        """Create an enhanced prompt with examples for title vs series distinction"""
+        examples = """
+EXAMPLES of correct title vs series extraction:
+
+Example 1:
+Text: "新編諸子集成 四書章句集註 朱熹撰"
+Correct extraction:
+- title: "四書章句集註" (actual book)
+- series: "新編諸子集成" (collection name)
+- author: "朱熹撰"
+
+Example 2:  
+Text: "四部叢刊 論語集注 程颐注"
+Correct extraction:
+- title: "論語集注" (actual book)
+- series: "四部叢刊" (collection name)
+- author: "程颐注"
+
+WRONG extraction would be:
+- title: "新編諸子集成" (this is the series, not the book title!)
+
+Now extract from this text:
+"""
+        return examples + "\n" + text
+
+        role_match = re.search(role_pattern, text)
+        if role_match:
+            role = role_match.group(1)
+            text = re.sub(role_pattern, '', text)
+        
+        # Remaining text is the author name
+        author_name = text.strip()
+        
+        return dynasty, author_name, role
+    
+    def convert_chinese_japanese_year(self, year_str: str) -> str:
+        """Convert Chinese/Japanese year formats to Arabic numerals"""
+        if not year_str or not isinstance(year_str, str):
+            return ""
+        
+        year_str = year_str.strip()
+        
+        if re.match(r'^\d{4}$', year_str):
+            return year_str
+        
+        try:
+            # Chinese numerals to Arabic mapping
+            chinese_nums = {
+                '〇': '0', '零': '0', '一': '1', '二': '2', '三': '3', '四': '4',
+                '五': '5', '六': '6', '七': '7', '八': '8', '九': '9'
+            }
+            
+            # Handle format like 一九六二年
+            if re.match(r'^[〇零一二三四五六七八九]{4}年?$', year_str):
+                converted = year_str.replace('年', '')
+                for chinese, arabic in chinese_nums.items():
+                    converted = converted.replace(chinese, arabic)
+                return converted
+            
+            # Handle Taiwan 民國 format
+            minguo_match = re.match(r'民國([〇零一二三四五六七八九十百]{1,3})年?', year_str)
+            if minguo_match:
+                minguo_year = minguo_match.group(1)
+                minguo_arabic = self.convert_chinese_number_to_arabic(minguo_year)
+                return str(1911 + int(minguo_arabic))
+            
+            # Handle Japanese era formats
+            japanese_eras = {
+                '明治': 1868, '大正': 1912, '昭和': 1926, '平成': 1989, '令和': 2019
+            }
+            
+            for era, base_year in japanese_eras.items():
+                era_pattern = f'{era}([〇零一二三四五六七八九十百]{{1,3}})年?'
+                era_match = re.match(era_pattern, year_str)
+                if era_match:
+                    era_year = era_match.group(1)
+                    era_arabic = self.convert_chinese_number_to_arabic(era_year)
+                    return str(base_year + int(era_arabic) - 1)
+            
+            return year_str  # Return original if conversion fails
+            
+        except Exception as e:
+            print(f"⚠️ Year conversion failed for '{year_str}': {e}")
+            return year_str
+    
+    def convert_chinese_number_to_arabic(self, chinese_num: str) -> str:
+        """Convert Chinese number to Arabic (handles up to hundreds)"""
+        if not chinese_num:
+            return "0"
+        
+        # Simple mapping for basic numbers
+        chinese_nums = {
+            '〇': 0, '零': 0, '一': 1, '二': 2, '三': 3, '四': 4,
+            '五': 5, '六': 6, '七': 7, '八': 8, '九': 9, '十': 10
+        }
+        
+        # Handle simple cases first
+        if chinese_num in chinese_nums:
+            return str(chinese_nums[chinese_num])
+        
+        # Handle compound numbers like 十五, 二十三, etc.
+        result = 0
+        current = 0
+        
+        for char in chinese_num:
+            if char == '十':
+                if current == 0:
+                    current = 1
+                result += current * 10
+                current = 0
+            elif char == '百':
+                result += current * 100
+                current = 0
+            elif char in chinese_nums:
+                current = chinese_nums[char]
+        
+        result += current
+        return str(result)
+
+    def validate_title_vs_series(self, extracted_result) -> Dict:
+        """Validate and correct title vs series extraction"""
+        title = extracted_result.get("title", "")
+        series = extracted_result.get("series", "")
+        
+        # Common series patterns that should NOT be the main title
+        series_patterns = [
+            "新編諸子集成", "四部叢刊", "古籍集成", "叢書", "文庫", "全集", "集成",
+            "第一輯", "第二輯", "第三輯", "新編", "續編", "補編"
+        ]
+        
+        # If title contains series pattern and series is empty, swap them
+        if title and not series:
+            for pattern in series_patterns:
+                if pattern in title:
+                    # Try to extract the real title and series
+                    if ")" in title or "）" in title:
+                        # Format like "新編諸子集成(第一輯)"
+                        parts = title.replace(")", "）").split("）")
+                        if len(parts) >= 2:
+                            extracted_result["series"] = parts[0].replace("(", "").replace("（", "")
+                            # Look for actual book title in the remaining text
+                            # This would need more sophisticated parsing
+                            break
+                    elif any(char.isdigit() or char in "一二三四五六七八九十" for char in title):
+                        # Title contains numbers, likely a series
+                        extracted_result["series"] = title
+                        extracted_result["title"] = ""  # Clear incorrect title
+                        break
+        
+        return extracted_result
+
+    def create_enhanced_prompt(self, text: str) -> str:
+        """Create an enhanced prompt with examples for title vs series distinction"""
+        examples = """
+EXAMPLES of correct title vs series extraction:
+
+Example 1:
+Text: "新編諸子集成 四書章句集註 朱熹撰"
+Correct extraction:
+- title: "四書章句集註" (actual book)
+- series: "新編諸子集成" (collection name)
+- author: "朱熹撰"
+
+Example 2:  
+Text: "四部叢刊 論語集注 程颐注"
+Correct extraction:
+- title: "論語集注" (actual book)
+- series: "四部叢刊" (collection name)
+- author: "程颐注"
+
+WRONG extraction would be:
+- title: "新編諸子集成" (this is the series, not the book title!)
+
+Now extract from this text:
+"""
+        return examples + "\n" + text
+
+        role_match = re.search(role_pattern, text)
+        if role_match:
+            role = role_match.group(1)
+            text = re.sub(role_pattern, '', text)
+        
+        # Remaining text is the author name
+        author_name = text.strip()
+        
+        return dynasty, author_name, role
+    
+    def convert_chinese_japanese_year(self, year_str: str) -> str:
+        """Convert Chinese/Japanese year formats to Arabic numerals"""
+        if not year_str or not isinstance(year_str, str):
+            return ""
+        
+        year_str = year_str.strip()
+        
+        if re.match(r'^\d{4}$', year_str):
+            return year_str
+        
+        try:
+            # Chinese numerals to Arabic mapping
+            chinese_nums = {
+                '〇': '0', '零': '0', '一': '1', '二': '2', '三': '3', '四': '4',
+                '五': '5', '六': '6', '七': '7', '八': '8', '九': '9'
+            }
+            
+            # Handle format like 一九六二年
+            if re.match(r'^[〇零一二三四五六七八九]{4}年?$', year_str):
+                converted = year_str.replace('年', '')
+                for chinese, arabic in chinese_nums.items():
+                    converted = converted.replace(chinese, arabic)
+                return converted
+            
+            # Handle Taiwan 民國 format
+            minguo_match = re.match(r'民國([〇零一二三四五六七八九十百]{1,3})年?', year_str)
+            if minguo_match:
+                minguo_year = minguo_match.group(1)
+                minguo_arabic = self.convert_chinese_number_to_arabic(minguo_year)
+                return str(1911 + int(minguo_arabic))
+            
+            # Handle Japanese era formats
+            japanese_eras = {
+                '明治': 1868, '大正': 1912, '昭和': 1926, '平成': 1989, '令和': 2019
+            }
+            
+            for era, base_year in japanese_eras.items():
+                era_pattern = f'{era}([〇零一二三四五六七八九十百]{{1,3}})年?'
+                era_match = re.match(era_pattern, year_str)
+                if era_match:
+                    era_year = era_match.group(1)
+                    era_arabic = self.convert_chinese_number_to_arabic(era_year)
+                    return str(base_year + int(era_arabic) - 1)
+            
+            return year_str  # Return original if conversion fails
+            
+        except Exception as e:
+            print(f"⚠️ Year conversion failed for '{year_str}': {e}")
+            return year_str
+    
+    def convert_chinese_number_to_arabic(self, chinese_num: str) -> str:
+        """Convert Chinese number to Arabic (handles up to hundreds)"""
+        if not chinese_num:
+            return "0"
+        
+        # Simple mapping for basic numbers
+        chinese_nums = {
+            '〇': 0, '零': 0, '一': 1, '二': 2, '三': 3, '四': 4,
+            '五': 5, '六': 6, '七': 7, '八': 8, '九': 9, '十': 10
+        }
+        
+        # Handle simple cases first
+        if chinese_num in chinese_nums:
+            return str(chinese_nums[chinese_num])
+        
+        # Handle compound numbers like 十五, 二十三, etc.
+        result = 0
+        current = 0
+        
+        for char in chinese_num:
+            if char == '十':
+                if current == 0:
+                    current = 1
+                result += current * 10
+                current = 0
+            elif char == '百':
+                result += current * 100
+                current = 0
+            elif char in chinese_nums:
+                current = chinese_nums[char]
+        
+        result += current
+        return str(result)
+
+    def validate_title_vs_series(self, extracted_result) -> Dict:
+        """Validate and correct title vs series extraction"""
+        title = extracted_result.get("title", "")
+        series = extracted_result.get("series", "")
+        
+        # Common series patterns that should NOT be the main title
+        series_patterns = [
+            "新編諸子集成", "四部叢刊", "古籍集成", "叢書", "文庫", "全集", "集成",
+            "第一輯", "第二輯", "第三輯", "新編", "續編", "補編"
+        ]
+        
+        # If title contains series pattern and series is empty, swap them
+        if title and not series:
+            for pattern in series_patterns:
+                if pattern in title:
+                    # Try to extract the real title and series
+                    if ")" in title or "）" in title:
+                        # Format like "新編諸子集成(第一輯)"
+                        parts = title.replace(")", "）").split("）")
+                        if len(parts) >= 2:
+                            extracted_result["series"] = parts[0].replace("(", "").replace("（", "")
+                            # Look for actual book title in the remaining text
+                            # This would need more sophisticated parsing
+                            break
+                    elif any(char.isdigit() or char in "一二三四五六七八九十" for char in title):
+                        # Title contains numbers, likely a series
+                        extracted_result["series"] = title
+                        extracted_result["title"] = ""  # Clear incorrect title
+                        break
+        
+        return extracted_result
+
+    def create_enhanced_prompt(self, text: str) -> str:
+        """Create an enhanced prompt with examples for title vs series distinction"""
+        examples = """
+EXAMPLES of correct title vs series extraction:
+
+Example 1:
+Text: "新編諸子集成 四書章句集註 朱熹撰"
+Correct extraction:
+- title: "四書章句集註" (actual book)
+- series: "新編諸子集成" (collection name)
+- author: "朱熹撰"
+
+Example 2:  
+Text: "四部叢刊 論語集注 程颐注"
+Correct extraction:
+- title: "論語集注" (actual book)
+- series: "四部叢刊" (collection name)
+- author: "程颐注"
+
+WRONG extraction would be:
+- title: "新編諸子集成" (this is the series, not the book title!)
+
+Now extract from this text:
+"""
+        return examples + "\n" + text
+
+        role_match = re.search(role_pattern, text)
+        if role_match:
+            role = role_match.group(1)
+            text = re.sub(role_pattern, '', text)
+        
+        # Remaining text is the author name
+        author_name = text.strip()
+        
+        return dynasty, author_name, role
+    
+    def convert_chinese_japanese_year(self, year_str: str) -> str:
+        """Convert Chinese/Japanese year formats to Arabic numerals"""
+        if not year_str or not isinstance(year_str, str):
+            return ""
+        
+        year_str = year_str.strip()
+        
+        if re.match(r'^\d{4}$', year_str):
+            return year_str
+        
+        try:
+            # Chinese numerals to Arabic mapping
+            chinese_nums = {
+                '〇': '0', '零': '0', '一': '1', '二': '2', '三': '3', '四': '4',
+                '五': '5', '六': '6', '七': '7', '八': '8', '九': '9'
+            }
+            
+            # Handle format like 一九六二年
+            if re.match(r'^[〇零一二三四五六七八九]{4}年?$', year_str):
+                converted = year_str.replace('年', '')
+                for chinese, arabic in chinese_nums.items():
+                    converted = converted.replace(chinese, arabic)
+                return converted
+            
+            # Handle Taiwan 民國 format
+            minguo_match = re.match(r'民國([〇零一二三四五六七八九十百]{1,3})年?', year_str)
+            if minguo_match:
+                minguo_year = minguo_match.group(1)
+                minguo_arabic = self.convert_chinese_number_to_arabic(minguo_year)
+                return str(1911 + int(minguo_arabic))
+            
+            # Handle Japanese era formats
+            japanese_eras = {
+                '明治': 1868, '大正': 1912, '昭和': 1926, '平成': 1989, '令和': 2019
+            }
+            
+            for era, base_year in japanese_eras.items():
+                era_pattern = f'{era}([〇零一二三四五六七八九十百]{{1,3}})年?'
+                era_match = re.match(era_pattern, year_str)
+                if era_match:
+                    era_year = era_match.group(1)
+                    era_arabic = self.convert_chinese_number_to_arabic(era_year)
+                    return str(base_year + int(era_arabic) - 1)
+            
+            return year_str  # Return original if conversion fails
+            
+        except Exception as e:
+            print(f"⚠️ Year conversion failed for '{year_str}': {e}")
+            return year_str
+    
+    def convert_chinese_number_to_arabic(self, chinese_num: str) -> str:
+        """Convert Chinese number to Arabic (handles up to hundreds)"""
+        if not chinese_num:
+            return "0"
+        
+        # Simple mapping for basic numbers
+        chinese_nums = {
+            '〇': 0, '零': 0, '一': 1, '二': 2, '三': 3, '四': 4,
+            '五': 5, '六': 6, '七': 7, '八': 8, '九': 9, '十': 10
+        }
+        
+        # Handle simple cases first
+        if chinese_num in chinese_nums:
+            return str(chinese_nums[chinese_num])
+        
+        # Handle compound numbers like 十五, 二十三, etc.
+        result = 0
+        current = 0
+        
+        for char in chinese_num:
+            if char == '十':
+                if current == 0:
+                    current = 1
+                result += current * 10
+                current = 0
+            elif char == '百':
+                result += current * 100
+                current = 0
+            elif char in chinese_nums:
+                current = chinese_nums[char]
+        
+        result += current
+        return str(result)
+
+    def validate_title_vs_series(self, extracted_result) -> Dict:
+        """Validate and correct title vs series extraction"""
+        title = extracted_result.get("title", "")
+        series = extracted_result.get("series", "")
+        
+        # Common series patterns that should NOT be the main title
+        series_patterns = [
+            "新編諸子集成", "四部叢刊", "古籍集成", "叢書", "文庫", "全集", "集成",
+            "第一輯", "第二輯", "第三輯", "新編", "續編", "補編"
+        ]
+        
+        # If title contains series pattern and series is empty, swap them
+        if title and not series:
+            for pattern in series_patterns:
+                if pattern in title:
+                    # Try to extract the real title and series
+                    if ")" in title or "）" in title:
+                        # Format like "新編諸子集成(第一輯)"
+                        parts = title.replace(")", "）").split("）")
+                        if len(parts) >= 2:
+                            extracted_result["series"] = parts[0].replace("(", "").replace("（", "")
+                            # Look for actual book title in the remaining text
+                            # This would need more sophisticated parsing
+                            break
+                    elif any(char.isdigit() or char in "一二三四五六七八九十" for char in title):
+                        # Title contains numbers, likely a series
+                        extracted_result["series"] = title
+                        extracted_result["title"] = ""  # Clear incorrect title
+                        break
+        
+        return extracted_result
+
+    def create_enhanced_prompt(self, text: str) -> str:
+        """Create an enhanced prompt with examples for title vs series distinction"""
+        examples = """
+EXAMPLES of correct title vs series extraction:
+
+Example 1:
+Text: "新編諸子集成 四書章句集註 朱熹撰"
+Correct extraction:
+- title: "四書章句集註" (actual book)
+- series: "新編諸子集成" (collection name)
+- author: "朱熹撰"
+
+Example 2:  
+Text: "四部叢刊 論語集注 程颐注"
+Correct extraction:
+- title: "論語集注" (actual book)
+- series: "四部叢刊" (collection name)
+- author: "程颐注"
+
+WRONG extraction would be:
+- title: "新編諸子集成" (this is the series, not the book title!)
+
+Now extract from this text:
+"""
+        return examples + "\n" + text
+
         role_match = re.search(role_pattern, text)
         if role_match:
             role = role_match.group(1)
