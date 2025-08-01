@@ -1,0 +1,47 @@
+import logging
+from langdetect import detect, LangDetectException
+from .vertical_handler import process_vertical_pdf
+
+
+def map_lang_to_tesseract(lang_code: str) -> str:
+    """Maps a language code from langdetect to a Tesseract language code."""
+    mapping = {
+        "zh-cn": "chi_sim",
+        "zh-tw": "chi_tra",
+        "ja": "jpn",
+        "ko": "kor",
+        "de": "deu",
+        "fr": "fra",
+        "es": "spa",
+        "ru": "rus",
+        "ar": "ara",
+        "hi": "hin",
+        "it": "ita",
+        "pt": "por",
+        # Add more mappings as needed
+    }
+    # Return the mapped code, or the original if it's not in the mapping (e.g., 'eng')
+    return mapping.get(lang_code, lang_code)
+
+
+def detect_language_from_pdf(pdf_path: str) -> str:
+    """Detect language from the first page of a PDF."""
+    print("🔍 Detecting language from PDF...")
+    try:
+        # Use paddleocr to get text from the first page
+        first_page_text = process_vertical_pdf(pdf_path, "ch", page_limit=1)
+        if not first_page_text or not first_page_text.strip():
+            print("⚠️ No text extracted from the first page for language detection.")
+            return "eng"  # Default to English
+
+        detected_lang_code = detect(first_page_text)
+        tesseract_lang = map_lang_to_tesseract(detected_lang_code)
+        print(f"✅ Language detected: {detected_lang_code} -> {tesseract_lang}")
+        return f"eng+{tesseract_lang}" if tesseract_lang != "eng" else "eng"
+
+    except LangDetectException:
+        print("⚠️ Language detection failed. Defaulting to English.")
+        return "eng"
+    except Exception as e:
+        print(f"An error occurred during language detection: {e}")
+        return "eng"

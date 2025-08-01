@@ -124,20 +124,21 @@ def ensure_searchable_pdf(pdf_path: str, lang: str = "eng+chi_sim") -> str:
     """Ensure PDF is searchable using OCR if needed."""
     try:
         doc = fitz.open(pdf_path)
-        # Check if the first page has text. A more robust check might be needed
-        # for PDFs with mixed image/text pages.
         if doc.page_count > 0 and doc[0].get_text().strip():
-            logging.info("PDF appears to be searchable.")
+            logging.info("PDF appears to be searchable, skipping OCR.")
             doc.close()
             return pdf_path
         doc.close()
 
-        logging.info(
-            f"PDF is not searchable or empty, running OCR with lang='{
-                lang}'..."
-        )
+        # --- OCR is needed ---
+        logging.info("PDF is not searchable or empty, proceeding with OCR.")
 
-        # Create a path for the OCR'd file in the same directory
+        # Use provided language string directly
+        ocr_lang = lang  # Use provided language directly
+        
+        logging.info(f"Running OCR with lang='{ocr_lang}'...")
+
+        # Step 2: Run ocrmypdf
         output_dir = os.path.dirname(pdf_path) or "."
         base_name = os.path.basename(pdf_path)
         ocr_output_path = os.path.join(output_dir, f"ocr_{base_name}")
@@ -147,7 +148,7 @@ def ensure_searchable_pdf(pdf_path: str, lang: str = "eng+chi_sim") -> str:
             "--deskew",
             "--force-ocr",
             "-l",
-            lang,
+            ocr_lang,
             pdf_path,
             ocr_output_path,
         ]
@@ -159,16 +160,12 @@ def ensure_searchable_pdf(pdf_path: str, lang: str = "eng+chi_sim") -> str:
 
         if process.returncode == 0:
             logging.info(f"OCR completed successfully: {ocr_output_path}")
-            # If the original path was a temp file, remove it as we now have the OCR'd version
-            if "temp" in pdf_path.lower() and os.path.basename(pdf_path).startswith(
-                "tmp"
-            ):
+            if "temp" in pdf_path.lower() and os.path.basename(pdf_path).startswith("tmp"):
                 os.remove(pdf_path)
             return ocr_output_path
         else:
             logging.error(f"OCR failed with return code {process.returncode}.")
             logging.error(f"Stderr: {process.stderr}")
-            # Return original path on failure
             return pdf_path
 
     except Exception as e:
@@ -380,11 +377,41 @@ AUTHOR_TITLES = [
     "博士", "神父", "教授", "老师", "先生"
 ]
 
-def format_author_csl(author_name: str) -> list:
-    """Formats an author string into a CSL-JSON compliant list of objects."""
+def format_author_csl(author_input) -> list:
+    """Formats author input (string or list of dicts) into CSL-JSON compliant list of objects."""
     from pypinyin import pinyin, Style
 
-    if not author_name or not author_name.strip():
+    if not author_input:
+        return []
+    
+    # Handle new structured format (list of dictionaries)
+    if isinstance(author_input, list):
+        authors = []
+        for author_dict in author_input:
+            if isinstance(author_dict, dict):
+                # Use the structured format directly
+                csl_author = {}
+                if author_dict.get("family"):
+                    csl_author["family"] = author_dict["family"]
+                if author_dict.get("given"):
+                    csl_author["given"] = author_dict["given"]
+                if author_dict.get("literal"):
+                    csl_author["literal"] = author_dict["literal"]
+                if author_dict.get("dynasty"):
+                    # Add dynasty info to suffix or literal
+                    dynasty_info = f"【{author_dict["dynasty"]}】"
+                    if "literal" in csl_author:
+                        if not csl_author["literal"].startswith("【"):
+                            csl_author["literal"] = dynasty_info + csl_author["literal"]
+                if author_dict.get("role"):
+                    # Add role to suffix
+                    csl_author["suffix"] = author_dict["role"]
+                authors.append(csl_author)
+        return authors
+    
+    # Handle legacy string format
+    author_name = str(author_input)
+    if not author_name.strip():
         return []
 
     authors = []
@@ -395,13 +422,13 @@ def format_author_csl(author_name: str) -> list:
     # Step 1: Smart Separation for multiple authors
     processed_author_name = re.sub(r"[\n;,、]", ",", author_name)
     # Add a comma between CJK characters and Latin characters to help splitting
-    processed_author_name = re.sub(r'([\u4e00-\u9fff])\s+([a-zA-Z])', r'\1,\2', processed_author_name)
-    processed_author_name = re.sub(r'([a-zA-Z])\s+([\u4e00-\u9fff])', r'\1,\2', processed_author_name)
+    processed_author_name = re.sub(r"([\u4e00-\u9fff])\s+([a-zA-Z])", r"\1,\2", processed_author_name)
+    processed_author_name = re.sub(r"([a-zA-Z])\s+([\u4e00-\u9fff])", r"\1,\2", processed_author_name)
     # Add a comma between CJK names separated by space
-    processed_author_name = re.sub(r'([\u4e00-\u9fff]{2,})\s+([\u4e00-\u9fff]{2,})', r'\1,\2', processed_author_name)
+    processed_author_name = re.sub(r"([\u4e00-\u9fff]{2,})\s+([\u4e00-\u9fff]{2,})", r"\1,\2", processed_author_name)
 
 
-    name_parts = re.split(r'\s+and\s+|,', processed_author_name, flags=re.IGNORECASE)
+    name_parts = re.split(r"\s+and\s+|,", processed_author_name, flags=re.IGNORECASE)
 
     # Step 2: Formatting Individual Names
     for name in name_parts:
@@ -616,3 +643,74 @@ def extract_publisher_from_domain(url: str) -> Optional[str]:
         logging.error(f"Error extracting publisher from domain: {e}")
         return None
 
+
+
+def ensure_searchable_pdf_with_detection(pdf_path: str) -> str:
+    """Ensure PDF is searchable with language detection for horizontal mode."""
+    try:
+        doc = fitz.open(pdf_path)
+        if doc.page_count > 0 and doc[0].get_text().strip():
+            logging.info("PDF appears to be searchable, skipping OCR.")
+            doc.close()
+            return pdf_path
+        doc.close()
+
+        # --- OCR is needed with language detection ---
+        from .ocr_lang_detect import detect_language_from_first_text_page, get_ocr_language_string
+        
+        print("🔍 Performing language detection...")
+        # First, try a quick OCR with basic languages for detection
+        temp_ocr = f"/tmp/detect_{os.path.basename(pdf_path)}"
+        
+        cmd = ["ocrmypdf", "--force-ocr", "-l", "eng+chi_sim+chi_tra", 
+               pdf_path, temp_ocr]
+        
+        process = subprocess.run(cmd, capture_output=True, text=True)
+        detected_lang = None
+        
+        if process.returncode == 0:
+            detected_lang = detect_language_from_first_text_page(temp_ocr)
+            os.remove(temp_ocr)
+        
+        # Get final OCR language string
+        ocr_lang = get_ocr_language_string(detected_lang)
+        print(f"🔍 Using OCR languages: {ocr_lang}")
+        
+        return ensure_searchable_pdf(pdf_path, ocr_lang)
+
+    except Exception as e:
+        logging.error(f"Error in language detection OCR: {e}")
+        # Fallback to basic OCR
+        return ensure_searchable_pdf(pdf_path, "eng+chi_sim")
+
+
+def ensure_searchable_pdf_with_detection(pdf_path: str) -> str:
+    """Ensure PDF is searchable with language detection for scanned PDFs."""
+    try:
+        # First check if already searchable
+        doc = fitz.open(pdf_path)
+        has_text = False
+        for i in range(min(3, doc.page_count)):
+            if doc[i].get_text().strip():
+                has_text = True
+                break
+        doc.close()
+        
+        if has_text:
+            print("📄 PDF is already searchable, no OCR needed.")  
+            return pdf_path
+
+        # --- PDF is scanned, needs OCR with language detection ---
+        print("🔍 PDF is scanned, performing language detection...")
+        from .ocr_lang_detect import detect_language_from_scanned_pdf, get_ocr_language_string
+        
+        detected_lang = detect_language_from_scanned_pdf(pdf_path)
+        ocr_lang = get_ocr_language_string(detected_lang)
+        print(f"🔍 Using OCR languages: {ocr_lang}")
+        
+        return ensure_searchable_pdf(pdf_path, ocr_lang)
+
+    except Exception as e:
+        logging.error(f"Error in language detection OCR: {e}")
+        # Fallback to basic OCR
+        return ensure_searchable_pdf(pdf_path, "eng+chi_sim")

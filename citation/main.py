@@ -11,6 +11,8 @@ from pymediainfo import MediaInfo
 import asyncio
 from crawl4ai import AsyncWebCrawler
 import yt_dlp
+from .vertical_handler import is_pdf_vertical, process_vertical_pdf
+from .vertical_llm import VerticalCitationLLM
 
 
 from .utils import (
@@ -68,7 +70,9 @@ class CitationExtractor:
         input_source: str,
         output_dir: str = "example",
         doc_type_override: Optional[str] = None,
-        lang: str = "eng+chi_sim",
+        lang: str = "auto",
+        text_direction: str = "horizontal",
+        vertical_lang: str = "ch",
         page_range: str = "1-5, -3",
     ) -> Optional[Dict]:
         """Main function to extract citation from either PDF or URL."""
@@ -85,7 +89,13 @@ class CitationExtractor:
             elif is_pdf_file(input_source):
                 logging.info(f"Detected PDF input: {input_source}")
                 return self.extract_from_pdf(
-                    input_source, output_dir, doc_type_override, lang, page_range
+                    input_source,
+                    output_dir,
+                    doc_type_override,
+                    lang,
+                    text_direction,
+                    vertical_lang,
+                    page_range,
                 )
             elif is_media_file(input_source):
                 logging.info(f"Detected media file input: {input_source}")
@@ -109,11 +119,15 @@ class CitationExtractor:
         input_pdf_path: str,
         output_dir: str = "example",
         doc_type_override: Optional[str] = None,
-        lang: str = "eng+chi_sim",
+        lang: str = "auto",
+        text_direction: str = "horizontal",
+        vertical_lang: str = "ch",
         page_range: str = "1-5, -3",
     ) -> Optional[Dict]:
-        """Extract citation from PDF using the new efficient, iterative workflow."""
+        """Extract citation from PDF with enhanced mixed layout processing."""
         temp_pdf_path = None
+        searchable_pdf_path = None
+        
         try:
             print(f"📄 Starting PDF citation extraction...")
 
@@ -124,82 +138,82 @@ class CitationExtractor:
                 logging.error(f"Could not read PDF file: {input_pdf_path}")
                 return None
 
-            # Step 2: Create a temporary subset PDF based on page_range
-            print(f"✂️ Step 2: Creating temporary PDF from page range '{page_range}'...")
+            # Step 2: Document Type Pre-filtering by Page Count
+            print(f"📊 Step 2: Document type pre-filtering from page count ({num_pages} pages)...")
+            if num_pages >= 70:
+                allowed_doc_types = ["book", "thesis"]
+                page_count_hint = "book"  # Default preference
+                print(f"📋 Page count ≥70: Will choose between BOOK or THESIS")
+            else:
+                allowed_doc_types = ["journal", "bookchapter"]  
+                page_count_hint = "journal"  # Default preference
+                print(f"📋 Page count <70: Will choose between JOURNAL or BOOKCHAPTER")
+
+            # Step 3: Create subset PDF from page range
+            print(f"✂️ Step 3: Creating temporary PDF from page range '{page_range}'...")
             temp_pdf_path = create_subset_pdf(input_pdf_path, page_range, num_pages)
             if not temp_pdf_path:
-                return None # Error handled in create_subset_pdf
+                return None
 
-            # Step 3: Ensure the temporary PDF is searchable (OCR if needed)
-            print("🔍 Step 3: Ensuring temporary PDF is searchable...")
-            searchable_pdf_path = ensure_searchable_pdf(temp_pdf_path, lang)
+            accumulated_text = ""
+            doc_type = doc_type_override
 
-            # Step 4: Determine document type
-            print("🔍 Step 4: Determining document type...")
-            doc = fitz.open(searchable_pdf_path)
-            temp_num_pages = doc.page_count
-            doc.close()
+            # Step 4: Branch on text direction mode
+            if text_direction == "horizontal":
+                print("📋 Step 4: Processing in HORIZONTAL mode...")
+                accumulated_text = self._process_horizontal_mode(temp_pdf_path)
+                
+            elif text_direction == "vertical":
+                print("📋 Step 4: Processing in VERTICAL mode...")
+                self._used_vertical_mode = True
+                accumulated_text = self._process_vertical_mode(temp_pdf_path)
+                
+            elif text_direction == "auto":
+                print("📋 Step 4: Processing in AUTO mode (first page analysis)...")
+                accumulated_text = self._process_auto_mode(temp_pdf_path)
+            
+            if not accumulated_text.strip():
+                print("❌ No text could be extracted from PDF.")
+                return None
 
-            if doc_type_override:
-                doc_type = doc_type_override
-                print(f"📋 Document type overridden to: {doc_type}")
-            else:
-                doc_type = determine_document_type(searchable_pdf_path, num_pages)
+            # Step 5: Document Type Determination with Pre-filtering
+            print("🔍 Step 5: Determining document type with pre-filtering...")
+            if not doc_type:
+                doc_type = self._determine_document_type_filtered(temp_pdf_path, num_pages, allowed_doc_types, page_count_hint)
                 print(f"📋 Determined document type: {doc_type.upper()}")
 
+            # Steps 6-8: Keep unchanged (page numbers, LLM extraction, save)
             citation_info = {}
-
-            # Step 5: Specialized page number extraction for journals and book chapters
             if doc_type in ["journal", "bookchapter"]:
-                print(f"🤖 Step 5: Specialized page number extraction for {doc_type}...")
-                doc = fitz.open(searchable_pdf_path)
-                if doc.page_count > 0:
-                    # Use improved pattern-based page extraction
-                    page_number_info = self.llm.extract_page_numbers_for_journal_chapter(
-                        searchable_pdf_path, page_range
-                    )
-                    if "page_numbers" in page_number_info:
-                        citation_info["page_numbers"] = page_number_info["page_numbers"]
-                        print(f"📄 Page numbers extracted by improved method: {citation_info['page_numbers']}")
-                doc.close()
+                print(f"🤖 Step 6: Specialized page number extraction for {doc_type}...")
+                # Use searchable PDF if available, otherwise temp PDF
+                pdf_for_analysis = searchable_pdf_path if searchable_pdf_path else temp_pdf_path
+                page_number_info = self.llm.extract_page_numbers_for_journal_chapter(
+                    pdf_for_analysis, page_range
+                )
+                if "page_numbers" in page_number_info:
+                    citation_info["page_numbers"] = page_number_info["page_numbers"]
+                    print(f"📄 Page numbers: {citation_info['page_numbers']}")
 
-
-
-
-            # Step 6: Iterative LLM Extraction for all other fields
-            print(f"🤖 Step 6: Starting iterative LLM extraction for {doc_type}...")
-            accumulated_text = ""
-
-            doc = fitz.open(searchable_pdf_path)
-            for i in range(doc.page_count):
-                print(f"  - Processing page {i + 1} of {doc.page_count}...")
-                page_text = extract_pdf_text(searchable_pdf_path, page_number=i)
-                accumulated_text += page_text + "\n\n"
-
-                # Call LLM with the accumulated text
-                current_citation = self.llm.extract_citation_from_text(accumulated_text, doc_type)
-
-                # Merge new findings into our main citation_info
-                for key, value in current_citation.items():
-                    if key not in citation_info:
-                        citation_info[key] = value
-
-                # Check for early exit
-                if _has_all_essential_fields(citation_info, doc_type):
-                    print(f"✅ All essential fields for '{doc_type}' found. Stopping early.")
-                    break
-            doc.close()
-
-            # Note: Online search step has been removed
-            if not _has_all_essential_fields(citation_info, doc_type):
-                print(f"⚠️ Some essential fields for '{doc_type}' may be missing, but proceeding with available data.")
+            # Step 7: LLM Extraction
+            print(f"🤖 Step 7: Extracting citation from accumulated text with LLM...")
+            # Use Vertical LLM for vertical modes, regular LLM for horizontal
+            if text_direction in ["vertical", "auto"] and hasattr(self, "_used_vertical_mode"):
+                vertical_llm = VerticalCitationLLM()
+                extracted_info = vertical_llm.extract_vertical_citation(accumulated_text, doc_type)
+                print("📋 Using Vertical Citation LLM for Traditional Chinese/Japanese text")
+            else:
+                extracted_info = self.llm.extract_citation_from_text(accumulated_text, doc_type)
+                print("📋 Using Regular Citation LLM")
+            
+            citation_info.update(extracted_info)
 
             if not citation_info:
                 print("❌ Failed to extract any citation information with LLM.")
                 return None
 
-            # Step 7: Convert to CSL JSON and save
-            print("💾 Step 7: Converting to CSL JSON and saving...")
+            # Step 8: Convert to CSL JSON and save
+            print("💾 Step 8: Converting to CSL JSON and saving...")
             csl_data = to_csl_json(citation_info, doc_type)
             save_citation(csl_data, output_dir)
             print("✅ Citation extraction completed successfully!")
@@ -211,262 +225,183 @@ class CitationExtractor:
             logging.debug(traceback.format_exc())
             return None
         finally:
-            # Clean up the temporary file
+            # Clean up temporary files
             if temp_pdf_path and os.path.exists(temp_pdf_path):
                 os.remove(temp_pdf_path)
                 logging.info(f"Removed temporary file: {temp_pdf_path}")
-            # If OCR created a file from a temp file, clean that up too
-            if 'searchable_pdf_path' in locals() and searchable_pdf_path != temp_pdf_path and os.path.exists(searchable_pdf_path):
-                 if "temp" in searchable_pdf_path.lower() or "tmp" in os.path.basename(searchable_pdf_path):
+            if searchable_pdf_path and searchable_pdf_path != temp_pdf_path and os.path.exists(searchable_pdf_path):
+                if "temp" in searchable_pdf_path.lower() or "tmp" in os.path.basename(searchable_pdf_path):
                     os.remove(searchable_pdf_path)
                     logging.info(f"Removed temporary OCR file: {searchable_pdf_path}")
 
-
-
-    def extract_from_media_file(
-        self, input_media_path: str, output_dir: str = "example"
-    ) -> Optional[Dict]:
-        """Extract citation from a local video/audio file."""
-        try:
-            print(f"📹 Starting media file citation extraction...")
-            media_info = MediaInfo.parse(input_media_path)
-            citation_info = {}
-
-            # Extract metadata from the general track
-            general_track = media_info.tracks[0]
-
-            # Title
-            title = getattr(general_track, "title", None)
-            if title:
-                citation_info["title"] = title
-            else:
-                # Fallback to filename
-                base_name = os.path.splitext(os.path.basename(input_media_path))[0]
-                citation_info["title"] = base_name.replace("_", " ").replace("-", " ")
-
-            # Author/Performer
-            author = getattr(general_track, "performer", None) or getattr(
-                general_track, "artist", None
-            )
-            if author:
-                citation_info["author"] = author
-
-            # Year
-            year = getattr(general_track, "recorded_date", None)
-            if year:
-                citation_info["year"] = str(year)
-
-            # Publisher
-            publisher = getattr(general_track, "publisher", None)
-            if publisher:
-                citation_info["publisher"] = publisher
-
-            # Duration
-            duration_ms = getattr(general_track, "duration", 0)
-            if duration_ms:
-                duration_s = int(duration_ms) // 1000
-                minutes = duration_s // 60
-                seconds = duration_s % 60
-                citation_info["duration"] = f"{minutes} min., {seconds} sec."
-
-            # Determine media type for CSL
-            media_type = "audio" if general_track.track_type == "Audio" else "video"
-
-            # Save citation
-            csl_data = to_csl_json(citation_info, media_type)
-            save_citation(csl_data, output_dir)
-            print("✅ Media citation extraction completed successfully!")
-            return csl_data
-
-        except Exception as e:
-            logging.error(f"Error extracting citation from media file: {e}")
-            return None
-
-    def extract_from_url(self, url: str, output_dir: str = "example") -> Optional[Dict]:
-        """Extract citation from URL."""
-        try:
-            print(f"🌐 Starting URL citation extraction...")
-
-            # Step 1: Determine URL type
-            print("🔍 Step 1: Determining URL type...")
-            url_type = determine_url_type(url)
-            print(f"📋 URL type: {url_type}")
-
-            # Step 2: Extract content based on URL type
-            if url_type == "text":
-                print("🔍 Step 2: Extracting from text-based URL...")
-                citation_info = self._extract_from_text_url(url)
-            else:
-                print("🔍 Step 2: Extracting media metadata...")
-                citation_info = self._extract_media_metadata(url)
-
-            # Step 3: Finalize and save citation
-            if citation_info:
-                citation_info["url"] = url
-                citation_info["date_accessed"] = datetime.now().strftime("%Y-%m-%d")
-
-                csl_type = "webpage" if url_type == "text" else "video"
-
-                print("💾 Step 4: Converting to CSL JSON and saving...")
-                csl_data = to_csl_json(citation_info, csl_type)
-                save_citation(csl_data, output_dir)
-
-                print("✅ URL citation extraction completed successfully!")
-                return csl_data
-            else:
-                print("❌ Failed to extract citation from URL")
-                return None
-
-        except Exception as e:
-            logging.error(f"Error extracting citation from URL: {e}")
-            return None
-
-    def _extract_from_text_url(self, url: str) -> Dict:
-        """Extracts citation from a text-based URL using a three-stage process."""
-        # Stage 1: Initial Metadata Extraction (Baseline)
-        print("🔍 Stage 1: Extracting initial metadata with trafilatura...")
-        initial_citation = {}
-        page_content = ""
-        try:
-            cleaned_url = clean_url(url)
-            downloaded = trafilatura.fetch_url(cleaned_url)
-            if downloaded:
-                # Extract main content for later stages
-                page_content = trafilatura.extract(downloaded, include_comments=False, include_tables=False)
-                
-                metadata = trafilatura.extract_metadata(downloaded)
-                if metadata:
-                    if metadata.title:
-                        initial_citation["title"] = metadata.title
-                    if metadata.author:
-                        initial_citation["author"] = metadata.author
-                    if metadata.date:
-                        initial_citation["date"] = metadata.date
-                    if metadata.sitename:
-                        initial_citation["container-title"] = metadata.sitename
-                    if metadata.description:
-                        initial_citation["abstract"] = metadata.description
-                    if metadata.tags:
-                        initial_citation["keyword"] = ", ".join(metadata.tags)
-                    print(f"📝 Trafilatura found: {initial_citation}")
-        except Exception as e:
-            logging.warning(f"Trafilatura failed: {e}")
-
-        # Stage 2: LLM-Based Refinement
-        print("🤖 Stage 2: Refining citation with LLM...")
-        refined_info = self.llm.refine_citation_from_web(
-            initial_title=initial_citation.get("title", ""),
-            initial_author=initial_citation.get("author", ""),
-            page_content=page_content,
-            url=url
-        )
+    def _process_vertical_mode(self, temp_pdf_path: str) -> str:
+        """Process subset PDF in vertical mode with per-page analysis and mixed processing."""
+        print("🔍 Vertical mode: Per-page analysis and mixed processing...")
         
-        if refined_info:
-            print(f"✅ LLM refined data: {refined_info}")
-            initial_citation.update(refined_info)
-        else:
-            print("⚠️ LLM refinement did not return any data.")
+        doc = fitz.open(temp_pdf_path)
+        page_classifications = []
+        accumulated_text = ""
+        
+        # Analyze each page for layout (same as current auto mode)
+        for page_num in range(doc.page_count):
+            page = doc[page_num]
+            pix = page.get_pixmap()
+            
+            # Skip blank pages
+            if self._is_page_blank_simple(pix):
+                print(f"📄 Page {page_num + 1}: Blank, skipping...")
+                page_classifications.append("blank")
+                continue
+            
+            # Determine if page is vertical or horizontal
+            try:
+                from .vertical_handler import is_vertical_from_layout
+                is_vertical = is_vertical_from_layout(pix, "ch")
+                layout_type = "vertical" if is_vertical else "horizontal"
+                page_classifications.append(layout_type)
+                print(f"📄 Page {page_num + 1}: {layout_type}")
+            except Exception as e:
+                print(f"⚠️ Page {page_num + 1}: Layout detection failed ({e}), assuming vertical")
+                page_classifications.append("vertical")  # Default to vertical in vertical mode
+        
+        doc.close()
+        
+        # Process pages based on classification
+        print(f"📋 Processing {len(page_classifications)} pages with vertical-oriented mixed strategy...")
+        
+        doc = fitz.open(temp_pdf_path)
+        for page_num, layout_type in enumerate(page_classifications):
+            if layout_type == "blank":
+                continue
+                
+            try:
+                if layout_type == "vertical":
+                    print(f"🔤 Page {page_num + 1}: Processing with PaddleOCR (vertical)...")
+                    page_text = self._extract_vertical_page_text(doc, page_num)
+                else:  # horizontal pages in vertical mode
+                    print(f"🔤 Page {page_num + 1}: Processing with Vertical OCR (horizontal page in vertical doc)...")
+                    page_text = self._extract_horizontal_page_with_vertical_ocr(doc, page_num)
+                
+                if page_text.strip():
+                    accumulated_text += page_text + "\n\n---\n\n"
+                else:
+                    print(f"⚠️ Page {page_num + 1}: No text extracted")
+                    
+            except Exception as e:
+                print(f"❌ Page {page_num + 1}: Processing failed ({e}), skipping...")
+                continue
+        
+        doc.close()
+        return accumulated_text
 
-        # Finalization: Ensure essential fields have fallbacks
-        if "date" not in initial_citation:
-            # Fallback to extract date from URL
-            import re
-            match = re.search(r'/(\d{4})/(\d{2})/(\d{2})/', url)
-            if match:
-                year, month, day = match.groups()
-                initial_citation["date"] = f"{year}-{month}-{day}"
-                print(f"📅 Fallback: date extracted from URL: {initial_citation['date']}")
-
-        if "container-title" not in initial_citation:
-            domain_publisher = extract_publisher_from_domain(url)
-            if domain_publisher:
-                initial_citation["container-title"] = domain_publisher
-                print(f"🏢 Fallback: container-title derived from domain: {domain_publisher}")
-
-        return initial_citation
-
-    async def _extract_with_crawl4ai(self, url: str) -> str:
-        """Crawls a single URL using crawl4ai and returns its markdown content."""
-        print("🕷️ Running crawl4ai...")
-        async with AsyncWebCrawler() as crawler:
-            result = await crawler.arun(url=url)
-            return result.markdown if result else ""
-
-    def _extract_media_metadata(self, url: str) -> Dict:
-        """Extract metadata from media URLs using yt-dlp."""
-        ydl_opts = {
-            'quiet': True,
-            'skip_download': True,
-            'extract_flat': True,  # Faster extraction
-        }
+    def _process_auto_mode(self, temp_pdf_path: str) -> str:
+        """Process subset PDF in auto mode - analyze first page only and switch mode."""
+        print("🔍 Auto mode: Analyzing first page to determine mode...")
+        
+        doc = fitz.open(temp_pdf_path)
+        if doc.page_count == 0:
+            doc.close()
+            return ""
+        
+        # Analyze only the first page
+        first_page = doc[0]
+        first_pix = first_page.get_pixmap()
+        doc.close()
+        
+        # Check if first page is blank
+        if self._is_page_blank_simple(first_pix):
+            print("📄 First page is blank, trying next pages...")
+            # Try a few more pages to find content
+            doc = fitz.open(temp_pdf_path)
+            for page_num in range(1, min(3, doc.page_count)):
+                page = doc[page_num]
+                pix = page.get_pixmap()
+                if not self._is_page_blank_simple(pix):
+                    first_pix = pix
+                # Check if this page is a cover page
+                if self.is_cover_page(page):
+                    print(f"📄 Page {page_num + 1} is a cover page, trying next...")
+                    continue
+                    print(f"📄 Using page {page_num + 1} for layout analysis")
+                    break
+            doc.close()
+        
+        # Determine layout of first content page
         try:
-            print(f"📹 Extracting media metadata with yt-dlp from: {url}")
-            with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-                info_dict = ydl.extract_info(url, download=False)
+            from .vertical_handler import is_vertical_from_layout
+            first_page_is_vertical = is_vertical_from_layout(first_pix, "ch")
+            
+            if first_page_is_vertical:
+                print("📋 First page is VERTICAL → Switching to VERTICAL mode")
+                self._used_vertical_mode = True
+                return self._process_vertical_mode(temp_pdf_path)
+            else:
+                print("📋 First page is HORIZONTAL → Switching to HORIZONTAL mode")
+                return self._process_horizontal_mode(temp_pdf_path)
                 
-                citation_info = {}
-
-                # --- Map yt-dlp fields to CSL JSON ---
-                # Title
-                if info_dict.get('title'):
-                    citation_info['title'] = info_dict['title']
-
-                # Author (prefer 'uploader' or 'channel')
-                if info_dict.get('uploader'):
-                    citation_info['author'] = info_dict['uploader']
-                elif info_dict.get('channel'):
-                    citation_info['author'] = info_dict['channel']
-
-                # Publication Date (issued)
-                if info_dict.get('upload_date'):
-                    # Format YYYYMMDD to YYYY-MM-DD
-                    date_str = info_dict['upload_date']
-                    try:
-                        citation_info['date'] = datetime.strptime(date_str, '%Y%m%d').strftime('%Y-%m-%d')
-                        citation_info['year'] = datetime.strptime(date_str, '%Y%m%d').strftime('%Y')
-                    except ValueError:
-                        logging.warning(f"Could not parse upload_date: {date_str}")
-
-                # Container Title & Publisher (use the extractor name, e.g., 'YouTube')
-                if info_dict.get('extractor'):
-                    # Capitalize for better presentation (e.g., 'youtube' -> 'YouTube')
-                    platform = info_dict['extractor'].capitalize()
-                    citation_info['container-title'] = platform
-                    citation_info['publisher'] = platform
-
-                # URL
-                if info_dict.get('webpage_url'):
-                    citation_info['url'] = info_dict['webpage_url']
-
-                # Abstract/Description
-                if info_dict.get('description'):
-                    citation_info['abstract'] = info_dict['description']
-
-                # Duration/Dimensions
-                if info_dict.get('duration'):
-                    duration_s = info_dict['duration']
-                    minutes, seconds = divmod(duration_s, 60)
-                    citation_info['dimensions'] = f"{minutes}:{seconds:02d}"
-                
-                # Handle playlist-specific title
-                if info_dict.get('playlist_title') and info_dict.get('title') != info_dict.get('playlist_title'):
-                    # If it's a video within a playlist, we can decide how to represent it.
-                    # For now, we prioritize the video's title but could add playlist to 'note'.
-                    citation_info['note'] = f"From playlist: {info_dict['playlist_title']}"
-
-                print(f"✅ yt-dlp extraction successful. Found {len(citation_info)} fields.")
-                return citation_info
-
         except Exception as e:
-            logging.error(f"Error extracting media metadata with yt-dlp: {e}")
-            # Fallback to basic info on error
-            print("⚠️ yt-dlp extraction failed. Falling back to basic extraction.")
-            return {
-                "title": "Media content from URL",
-                "author": "Unknown",
-                "container-title": extract_publisher_from_domain(url),
-            }
+            print(f"⚠️ First page layout detection failed ({e}) → Defaulting to HORIZONTAL mode")
+            return self._process_horizontal_mode(temp_pdf_path)
 
+    def _extract_horizontal_page_with_vertical_ocr(self, doc, page_num: int) -> str:
+        """Extract text from a horizontal page using vertical OCR languages."""
+        try:
+            # Create single page temp file
+            temp_single_page = f"/tmp/single_horizontal_vertical_ocr_{page_num}.pdf"
+            single_doc = fitz.open()
+            single_doc.insert_pdf(doc, from_page=page_num, to_page=page_num)
+            single_doc.save(temp_single_page)
+            single_doc.close()
+            
+            # Check if already has text
+            test_doc = fitz.open(temp_single_page)
+            existing_text = test_doc[0].get_text().strip()
+            test_doc.close()
+            
+            if existing_text:
+                page_text = existing_text
+            else:
+                # Use vertical OCR languages for consistency in vertical mode
+                from .ocr_lang_detect import get_vertical_ocr_languages
+                from .utils import ensure_searchable_pdf
+                
+                ocr_lang = get_vertical_ocr_languages()  # chi_tra_vert+jpn_vert
+                ocr_page_path = ensure_searchable_pdf(temp_single_page, ocr_lang)
+                
+                # Extract text
+                ocr_doc = fitz.open(ocr_page_path)
+                page_text = ocr_doc[0].get_text()
+                ocr_doc.close()
+                
+                # Cleanup OCR file if different
+                if ocr_page_path != temp_single_page and os.path.exists(ocr_page_path):
+                    os.remove(ocr_page_path)
+            
+            # Cleanup
+            os.remove(temp_single_page)
+            return page_text or ""
+            
+        except Exception as e:
+            print(f"❌ Vertical OCR failed for horizontal page {page_num + 1}: {e}")
+            return ""
+
+    def _determine_document_type_filtered(self, temp_pdf_path: str, num_pages: int, allowed_types: list, default_type: str) -> str:
+        """Determine document type with pre-filtering based on page count."""
+        try:
+            # Use existing document type detection
+            detected_type = determine_document_type(temp_pdf_path, num_pages)
+            
+            # Check if detected type is in allowed types
+            if detected_type in allowed_types:
+                print(f"📋 Detected type '{detected_type}' is allowed by page count filter")
+                return detected_type
+            else:
+                print(f"📋 Detected type '{detected_type}' not allowed by page count filter, using default '{default_type}'")
+                return default_type
+                
+        except Exception as e:
+            print(f"⚠️ Document type detection failed ({e}), using default '{default_type}'")
+            return default_type
     def _analyze_pdf_structure(self, pdf_path: str) -> tuple:
         """Analyze PDF structure using PyMuPDF."""
         try:
@@ -484,3 +419,156 @@ class CitationExtractor:
             logging.error(f"Error analyzing PDF structure: {e}")
             return 0, ""
 
+
+    def _process_horizontal_mode(self, temp_pdf_path: str) -> str:
+        """Process subset PDF in horizontal mode (temp_pdf_path contains only page-range pages)."""
+        print("🔍 Horizontal mode: Checking if PDF is searchable...")
+        
+        # Check if already searchable
+        doc = fitz.open(temp_pdf_path)
+        has_text = False
+        for i in range(min(3, doc.page_count)):
+            if doc[i].get_text().strip():
+                has_text = True
+                break
+        doc.close()
+        
+        if has_text:
+            print("📄 PDF is already searchable.")
+            searchable_pdf_path = temp_pdf_path
+        else:
+            print("🔍 PDF is scanned, performing enhanced language detection...")
+            from .utils import ensure_searchable_pdf_with_detection
+            searchable_pdf_path = ensure_searchable_pdf_with_detection(temp_pdf_path)
+        
+        # Extract text from subset pages
+        print("📄 Extracting text from subset pages...")
+        # Skip cover pages during text extraction
+        non_cover_pages = []
+        for i in non_cover_pages:
+            page = doc[i]
+            if self.is_cover_page(page):
+                print(f"📄 Page {i + 1}: Cover page detected, skipping...")
+                continue
+            non_cover_pages.append(i)
+        
+        if not non_cover_pages:
+            print("⚠️ All pages detected as cover pages, processing anyway...")
+            non_cover_pages = list(range(doc.page_count))
+        accumulated_text = ""
+        doc = fitz.open(searchable_pdf_path)
+        for i in non_cover_pages:
+            page_text = extract_pdf_text(searchable_pdf_path, page_number=i)
+            if page_text.strip():
+                accumulated_text += page_text + "\n\n"
+        doc.close()
+        
+        return accumulated_text
+
+    def _is_page_blank_simple(self, pix) -> bool:
+        """Simple check if page is mostly blank."""
+        import numpy as np
+        img_array = np.frombuffer(pix.samples, dtype=np.uint8).reshape(pix.height, pix.width, -1)
+        
+        if img_array.shape[2] > 1:
+            gray_img = np.mean(img_array, axis=2)
+        else:
+            gray_img = img_array.squeeze()
+
+        non_white_pixels = np.sum(gray_img < 250)
+        total_pixels = pix.width * pix.height
+        non_white_percentage = (non_white_pixels / total_pixels) * 100
+        
+        return non_white_percentage < 1.0
+
+    def _extract_vertical_page_text(self, doc, page_num: int) -> str:
+        """Extract text from a vertical page using PaddleOCR."""
+        try:
+            # Create single page temp file
+            temp_single_page = f"/tmp/single_vertical_page_{page_num}.pdf"
+            single_doc = fitz.open()
+            single_doc.insert_pdf(doc, from_page=page_num, to_page=page_num)
+            single_doc.save(temp_single_page)
+            single_doc.close()
+            
+            # Use PaddleOCR
+            from .vertical_handler import process_vertical_pdf
+            page_text = process_vertical_pdf(temp_single_page, "ch", page_limit=1)
+            
+            # Cleanup
+            os.remove(temp_single_page)
+            return page_text or ""
+            
+        except Exception as e:
+            print(f"❌ PaddleOCR failed for page {page_num + 1}: {e}")
+            return ""
+
+    def _extract_horizontal_page_text(self, doc, page_num: int) -> str:
+        """Extract text from a horizontal page using Tesseract."""
+        try:
+            # Create single page temp file
+            temp_single_page = f"/tmp/single_horizontal_page_{page_num}.pdf"
+            single_doc = fitz.open()
+            single_doc.insert_pdf(doc, from_page=page_num, to_page=page_num)
+            single_doc.save(temp_single_page)
+            single_doc.close()
+            
+            # Check if already has text
+            test_doc = fitz.open(temp_single_page)
+            existing_text = test_doc[0].get_text().strip()
+            test_doc.close()
+            
+            if existing_text:
+                page_text = existing_text
+            else:
+                # Use Tesseract with Traditional Chinese + Japanese
+                from .ocr_lang_detect import get_auto_mode_horizontal_ocr_languages
+                from .utils import ensure_searchable_pdf
+                
+                ocr_lang = get_auto_mode_horizontal_ocr_languages()
+                ocr_page_path = ensure_searchable_pdf(temp_single_page, ocr_lang)
+                
+                # Extract text
+                ocr_doc = fitz.open(ocr_page_path)
+                page_text = ocr_doc[0].get_text()
+                ocr_doc.close()
+                
+                # Cleanup OCR file if different
+                if ocr_page_path != temp_single_page and os.path.exists(ocr_page_path):
+                    os.remove(ocr_page_path)
+            
+            # Cleanup
+            os.remove(temp_single_page)
+            return page_text or ""
+            
+        except Exception as e:
+            print(f"❌ Tesseract failed for page {page_num + 1}: {e}")
+            return ""
+
+    def is_cover_page(self, page) -> bool:
+        """Detect cover page based on text-to-image ratio analysis"""
+        try:
+            # Get text and image blocks
+            text_blocks = page.get_text("dict")["blocks"]
+            image_blocks = page.get_images()
+            
+            # Calculate text area
+            text_area = 0
+            for block in text_blocks:
+                if "lines" in block:  # Text block
+                    bbox = block["bbox"]
+                    text_area += (bbox[2] - bbox[0]) * (bbox[3] - bbox[1])
+            
+            # Calculate image area
+            image_area = 0
+            for img in image_blocks:
+                # Each image is (xref, smask, width, height, bpc, colorspace, alt, name, filter)
+                if len(img) >= 4:
+                    image_area += img[2] * img[3]  # width * height
+            
+            # If images dominate (>2.3 times text area), likely a cover page
+            return image_area > text_area * 2.3
+            
+        except Exception as e:
+            print(f"⚠️ Cover page detection failed: {e}")
+            return False  # If detection fails, assume it's content

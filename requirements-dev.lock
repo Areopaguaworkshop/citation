@@ -14,9 +14,10 @@ aiofiles==24.1.0
     # via crawl4ai
 aiohappyeyeballs==2.6.1
     # via aiohttp
-aiohttp==3.12.14
+aiohttp==3.12.15
     # via crawl4ai
     # via fsspec
+    # via langchain-community
     # via litellm
 aiosignal==1.4.0
     # via aiohttp
@@ -45,11 +46,13 @@ backoff==2.2.1
     # via dspy
 beautifulsoup4==4.13.4
     # via crawl4ai
+    # via paddlex
 brotli==1.1.0
     # via crawl4ai
 cachetools==6.1.0
     # via dspy
-certifi==2025.7.9
+    # via premailer
+certifi==2025.7.14
     # via httpcore
     # via httpx
     # via requests
@@ -58,6 +61,7 @@ cffi==1.17.1
     # via cryptography
 chardet==5.2.0
     # via crawl4ai
+    # via paddlex
 charset-normalizer==3.4.2
     # via htmldate
     # via pdfminer-six
@@ -77,21 +81,29 @@ cloudpickle==3.1.1
     # via dspy
 colorlog==6.9.0
     # via optuna
+    # via paddlex
 courlan==1.3.2
     # via trafilatura
-coverage==7.9.2
+coverage==7.10.1
     # via pytest-cov
-crawl4ai==0.7.1
+crawl4ai==0.7.2
     # via cite-extractor
 cryptography==45.0.5
     # via pdfminer-six
     # via pyopenssl
 cssselect==1.3.0
     # via crawl4ai
+    # via premailer
+cssutils==2.11.1
+    # via premailer
+dataclasses-json==0.6.7
+    # via langchain-community
 datasets==4.0.0
     # via dspy
 dateparser==1.2.2
     # via htmldate
+decorator==5.2.1
+    # via paddlepaddle
 deprecated==1.2.18
     # via pikepdf
 deprecation==2.1.0
@@ -107,6 +119,10 @@ dspy==2.6.27
     # via dspy-ai
 dspy-ai==2.6.27
     # via cite-extractor
+einops==0.8.1
+    # via paddlex
+et-xmlfile==2.0.0
+    # via openpyxl
 fake-http-header==0.3.5
     # via tf-playwright-stealth
 fake-useragent==2.2.0
@@ -114,15 +130,17 @@ fake-useragent==2.2.0
 filelock==3.18.0
     # via datasets
     # via huggingface-hub
-    # via torch
-    # via transformers
+    # via paddlex
 frozenlist==1.7.0
     # via aiohttp
     # via aiosignal
 fsspec==2025.3.0
     # via datasets
     # via huggingface-hub
-    # via torch
+ftfy==6.3.1
+    # via paddlex
+gputil==1.4.0
+    # via paddlex
 greenlet==3.2.3
     # via playwright
     # via sqlalchemy
@@ -140,13 +158,16 @@ httpcore==1.0.9
     # via httpx
 httpx==0.28.1
     # via crawl4ai
+    # via langsmith
     # via litellm
     # via openai
-huggingface-hub==0.33.4
+    # via paddlepaddle
+httpx-sse==0.4.1
+    # via langchain-community
+huggingface-hub==0.34.3
     # via datasets
-    # via sentence-transformers
+    # via paddlex
     # via tokenizers
-    # via transformers
 humanize==4.12.3
     # via crawl4ai
 hyperframe==6.1.0
@@ -156,6 +177,8 @@ idna==3.10
     # via httpx
     # via requests
     # via yarl
+imagesize==1.4.1
+    # via paddlex
 img2pdf==0.6.1
     # via ocrmypdf
 importlib-metadata==8.7.0
@@ -164,24 +187,49 @@ iniconfig==2.1.0
     # via pytest
 jinja2==3.1.6
     # via litellm
-    # via torch
+    # via paddlex
 jiter==0.10.0
     # via openai
 joblib==1.5.1
     # via dspy
     # via nltk
     # via scikit-learn
-json-repair==0.47.7
+json-repair==0.48.0
     # via dspy
-jsonschema==4.24.0
+jsonpatch==1.33
+    # via langchain-core
+jsonpointer==3.0.0
+    # via jsonpatch
+jsonschema==4.25.0
     # via litellm
 jsonschema-specifications==2025.4.1
     # via jsonschema
 justext==3.0.2
     # via trafilatura
+langchain==0.3.27
+    # via langchain-community
+    # via paddlex
+langchain-community==0.3.27
+    # via paddlex
+langchain-core==0.3.72
+    # via langchain
+    # via langchain-community
+    # via langchain-openai
+    # via langchain-text-splitters
+    # via paddlex
+langchain-openai==0.3.28
+    # via paddlex
+langchain-text-splitters==0.3.9
+    # via langchain
+langdetect==1.0.9
+    # via cite-extractor
+langsmith==0.4.9
+    # via langchain
+    # via langchain-community
+    # via langchain-core
 lark==1.2.2
     # via crawl4ai
-litellm==1.74.3
+litellm==1.74.12
     # via crawl4ai
     # via dspy
 lxml==5.4.0
@@ -191,7 +239,9 @@ lxml==5.4.0
     # via htmldate
     # via justext
     # via lxml-html-clean
+    # via paddlex
     # via pikepdf
+    # via premailer
     # via trafilatura
 lxml-html-clean==0.4.2
     # via lxml
@@ -204,126 +254,139 @@ markdown-it-py==3.0.0
 markupsafe==3.0.2
     # via jinja2
     # via mako
+marshmallow==3.26.1
+    # via dataclasses-json
 mdurl==0.1.2
     # via markdown-it-py
-mpmath==1.3.0
-    # via sympy
+more-itertools==10.7.0
+    # via cssutils
 multidict==6.6.3
     # via aiohttp
     # via yarl
 multiprocess==0.70.16
     # via datasets
+mypy-extensions==1.1.0
+    # via typing-inspect
 networkx==3.5
     # via alphashape
-    # via torch
+    # via paddlepaddle
 nltk==3.9.1
     # via crawl4ai
-numpy==2.3.1
+numpy==2.3.2
     # via alphashape
     # via crawl4ai
     # via datasets
     # via dspy
+    # via langchain-community
+    # via opencv-contrib-python
+    # via opt-einsum
     # via optuna
+    # via paddlepaddle
+    # via paddlex
     # via pandas
     # via rank-bm25
     # via scikit-learn
     # via scipy
     # via shapely
-    # via transformers
     # via trimesh
-nvidia-cublas-cu12==12.6.4.1
-    # via nvidia-cudnn-cu12
-    # via nvidia-cusolver-cu12
-    # via torch
-nvidia-cuda-cupti-cu12==12.6.80
-    # via torch
-nvidia-cuda-nvrtc-cu12==12.6.77
-    # via torch
-nvidia-cuda-runtime-cu12==12.6.77
-    # via torch
-nvidia-cudnn-cu12==9.5.1.17
-    # via torch
-nvidia-cufft-cu12==11.3.0.4
-    # via torch
-nvidia-cufile-cu12==1.11.1.6
-    # via torch
-nvidia-curand-cu12==10.3.7.77
-    # via torch
-nvidia-cusolver-cu12==11.7.1.2
-    # via torch
-nvidia-cusparse-cu12==12.5.4.2
-    # via nvidia-cusolver-cu12
-    # via torch
-nvidia-cusparselt-cu12==0.6.3
-    # via torch
-nvidia-nccl-cu12==2.26.2
-    # via torch
-nvidia-nvjitlink-cu12==12.6.85
-    # via nvidia-cufft-cu12
-    # via nvidia-cusolver-cu12
-    # via nvidia-cusparse-cu12
-    # via torch
-nvidia-nvtx-cu12==12.6.77
-    # via torch
 ocrmypdf==16.10.4
     # via cite-extractor
-openai==1.95.1
+openai==1.98.0
     # via dspy
+    # via langchain-openai
     # via litellm
+    # via paddlex
+opencv-contrib-python==4.10.0.84
+    # via paddlex
+openpyxl==3.1.5
+    # via paddlex
+opt-einsum==3.3.0
+    # via paddlepaddle
 optuna==4.4.0
     # via dspy
+orjson==3.11.1
+    # via langsmith
 packaging==25.0
     # via datasets
     # via deprecation
     # via huggingface-hub
+    # via langchain-core
+    # via langsmith
+    # via marshmallow
     # via ocrmypdf
     # via optuna
+    # via paddlex
     # via pikepdf
     # via pytest
-    # via transformers
+paddleocr==3.1.0
+    # via cite-extractor
+paddlepaddle==3.1.0
+    # via cite-extractor
+paddlex==3.1.3
+    # via paddleocr
 pandas==2.3.1
     # via datasets
     # via dspy
+    # via paddlex
 pdfminer-six==20250506
     # via ocrmypdf
 pi-heif==1.0.0
     # via ocrmypdf
-pikepdf==9.9.0
+pikepdf==9.10.2
     # via img2pdf
     # via ocrmypdf
 pillow==11.3.0
     # via crawl4ai
     # via img2pdf
     # via ocrmypdf
+    # via paddlepaddle
+    # via paddlex
     # via pi-heif
     # via pikepdf
-    # via sentence-transformers
-playwright==1.53.0
+playwright==1.54.0
     # via crawl4ai
     # via tf-playwright-stealth
-pluggy==1.5.0
+pluggy==1.6.0
     # via ocrmypdf
     # via pytest
     # via pytest-cov
+premailer==3.10.0
+    # via paddlex
+prettytable==3.16.0
+    # via paddlex
 propcache==0.3.2
     # via aiohttp
     # via yarl
+protobuf==6.31.1
+    # via paddlepaddle
 psutil==7.0.0
     # via crawl4ai
-pyarrow==20.0.0
+py-cpuinfo==9.0.0
+    # via paddlex
+pyarrow==21.0.0
     # via datasets
+pyclipper==1.3.0.post6
+    # via paddlex
 pycparser==2.22
     # via cffi
 pydantic==2.11.7
     # via crawl4ai
     # via dspy
+    # via langchain
+    # via langchain-core
+    # via langsmith
     # via litellm
     # via openai
+    # via paddlex
+    # via pydantic-settings
 pydantic-core==2.33.2
     # via pydantic
+pydantic-settings==2.10.1
+    # via langchain-community
 pyee==13.0.0
     # via playwright
-pygments==2.19.1
+pygments==2.19.2
+    # via pytest
     # via rich
 pymediainfo==7.0.1
     # via cite-extractor
@@ -331,11 +394,13 @@ pymupdf==1.26.3
     # via cite-extractor
 pyopenssl==25.1.0
     # via crawl4ai
+pypdfium2==4.30.0
+    # via paddlex
 pyperclip==1.9.0
     # via crawl4ai
-pypinyin==0.54.0
+pypinyin==0.55.0
     # via cite-extractor
-pytest==8.3.5
+pytest==8.4.1
     # via pytest-cov
 pytest-cov==6.2.1
 python-dateutil==2.9.0.post0
@@ -346,34 +411,46 @@ python-dateutil==2.9.0.post0
 python-dotenv==1.1.1
     # via crawl4ai
     # via litellm
+    # via pydantic-settings
 pytz==2025.2
     # via dateparser
     # via pandas
 pyyaml==6.0.2
     # via datasets
     # via huggingface-hub
+    # via langchain
+    # via langchain-community
+    # via langchain-core
     # via optuna
-    # via transformers
+    # via paddleocr
+    # via paddlex
 rank-bm25==0.2.2
     # via crawl4ai
 referencing==0.36.2
     # via jsonschema
     # via jsonschema-specifications
-regex==2024.11.6
+regex==2025.7.34
     # via dateparser
     # via dspy
     # via nltk
+    # via paddlex
     # via tiktoken
-    # via transformers
 requests==2.32.4
     # via cite-extractor
     # via crawl4ai
     # via datasets
     # via dspy
     # via huggingface-hub
+    # via langchain
+    # via langchain-community
+    # via langsmith
+    # via paddlex
+    # via premailer
+    # via requests-toolbelt
     # via tiktoken
-    # via transformers
-rich==14.0.0
+requests-toolbelt==1.0.0
+    # via langsmith
+rich==14.1.0
     # via crawl4ai
     # via dspy
     # via ocrmypdf
@@ -382,23 +459,23 @@ rpds-py==0.26.0
     # via referencing
 rtree==1.4.0
     # via alphashape
-safetensors==0.5.3
-    # via transformers
-scikit-learn==1.7.0
-    # via sentence-transformers
-scipy==1.16.0
+ruamel-yaml==0.18.14
+    # via paddlex
+ruamel-yaml-clib==0.2.12
+    # via ruamel-yaml
+scikit-learn==1.7.1
+    # via paddlex
+scipy==1.16.1
     # via alphashape
     # via scikit-learn
-    # via sentence-transformers
-sentence-transformers==5.0.0
-    # via crawl4ai
 setuptools==80.9.0
-    # via torch
-    # via triton
+    # via cite-extractor
 shapely==2.1.1
     # via alphashape
     # via crawl4ai
+    # via paddlex
 six==1.17.0
+    # via langdetect
     # via python-dateutil
 sniffio==1.3.1
     # via anyio
@@ -407,26 +484,28 @@ snowballstemmer==2.2.0
     # via crawl4ai
 soupsieve==2.7
     # via beautifulsoup4
-sqlalchemy==2.0.41
+sqlalchemy==2.0.42
     # via alembic
+    # via langchain
+    # via langchain-community
     # via optuna
-sympy==1.14.0
-    # via torch
 tenacity==9.1.2
     # via dspy
+    # via langchain-community
+    # via langchain-core
 tf-playwright-stealth==1.2.0
     # via crawl4ai
 threadpoolctl==3.6.0
     # via scikit-learn
 tiktoken==0.9.0
+    # via langchain-openai
     # via litellm
+    # via paddlex
 tld==0.13.1
     # via courlan
-tokenizers==0.21.2
+tokenizers==0.21.4
     # via litellm
-    # via transformers
-torch==2.7.1
-    # via sentence-transformers
+    # via paddlex
 tqdm==4.67.1
     # via datasets
     # via dspy
@@ -434,16 +513,10 @@ tqdm==4.67.1
     # via nltk
     # via openai
     # via optuna
-    # via sentence-transformers
-    # via transformers
 trafilatura==2.0.0
     # via cite-extractor
-transformers==4.53.2
-    # via sentence-transformers
 trimesh==4.7.1
     # via alphashape
-triton==3.3.1
-    # via torch
 typing-extensions==4.14.1
     # via aiosignal
     # via aiosqlite
@@ -451,30 +524,40 @@ typing-extensions==4.14.1
     # via anyio
     # via beautifulsoup4
     # via huggingface-hub
+    # via langchain-core
     # via openai
+    # via paddleocr
+    # via paddlepaddle
+    # via paddlex
     # via pydantic
     # via pydantic-core
     # via pyee
     # via pyopenssl
     # via referencing
-    # via sentence-transformers
     # via sqlalchemy
-    # via torch
+    # via typing-inspect
     # via typing-inspection
+typing-inspect==0.9.0
+    # via dataclasses-json
 typing-inspection==0.4.1
     # via pydantic
+    # via pydantic-settings
 tzdata==2025.2
     # via pandas
 tzlocal==5.3.1
     # via dateparser
 ujson==5.10.0
     # via dspy
+    # via paddlex
 urllib3==2.5.0
     # via cite-extractor
     # via courlan
     # via htmldate
     # via requests
     # via trafilatura
+wcwidth==0.2.13
+    # via ftfy
+    # via prettytable
 wrapt==1.17.2
     # via deprecated
 xxhash==3.5.0
@@ -486,3 +569,5 @@ yt-dlp==2025.7.21
     # via cite-extractor
 zipp==3.23.0
     # via importlib-metadata
+zstandard==0.23.0
+    # via langsmith

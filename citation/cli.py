@@ -40,8 +40,28 @@ def main():
     parser.add_argument(
         "--lang",
         "-l",
-        default="eng+chi_sim+chi_tra",
-        help="Language for OCR (default: eng+chi_sim+chi_tra)",
+        default="auto",
+        help="Language for OCR. Default is 'auto' for automatic detection. "
+             "Example: 'eng+chi_sim'.",
+    )
+
+    # Text direction option for PDFs
+    parser.add_argument(
+        "--text-direction",
+        "-td",
+        choices=["horizontal", "auto", "vertical"],
+        default="horizontal",
+        help="Text direction for PDF processing. 'auto' or 'vertical' is recommended for "
+             "documents with vertical text, common in Chinese and Japanese. "
+             "This option only applies to PDF files. Default: horizontal.",
+    )
+
+    # Language option for vertical OCR
+    parser.add_argument(
+        "--vertical-lang",
+        choices=["ch", "japan"],
+        default="ch",
+        help="Primary language for vertical text OCR (default: ch)",
     )
 
     # Page range option for OCR
@@ -80,6 +100,13 @@ def main():
     else:
         logging.getLogger().setLevel(logging.INFO)
 
+    # Check if --text-direction is used with a non-PDF file
+    if args.text_direction != "horizontal" and not args.input.lower().endswith(".pdf"):
+        print(
+            "Warning: --text-direction is only applicable to PDF files and will be ignored.",
+            file=sys.stderr,
+        )
+
     try:
         # Initialize extractor with selected LLM model
         if args.verbose:
@@ -93,6 +120,8 @@ def main():
             output_dir=args.output_dir,
             doc_type_override=args.type,
             lang=args.lang,
+            text_direction=args.text_direction,
+            vertical_lang=args.vertical_lang,
             page_range=args.page_range,
         )
 
