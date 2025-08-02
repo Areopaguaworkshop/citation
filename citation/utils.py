@@ -18,6 +18,9 @@ PYMUPDF_SUPPORTED_EXTENSIONS = [
 OFFICE_SUPPORTED_EXTENSIONS = [
     '.docx', '.doc', '.rtf', '.odt', 
     '.pptx', '.ppt', '.odp',
+]
+
+DJVU_SUPPORTED_EXTENSIONS = [
     '.djvu'  # DjVu format
 ]
 
@@ -28,7 +31,7 @@ MEDIA_EXTENSIONS = [
 
 def get_input_type(input_string: str) -> str:
     """
-    Determines the type of input (URL, PYMUPDF_DOCUMENT, OFFICE_DOCUMENT, MEDIA_FILE, UNSUPPORTED).
+    Determines the type of input (URL, PYMUPDF_DOCUMENT, OFFICE_DOCUMENT, DJVU_DOCUMENT, MEDIA_FILE, UNSUPPORTED).
     """
     # 1. Check if it's a URL
     try:
@@ -47,6 +50,8 @@ def get_input_type(input_string: str) -> str:
             return "PYMUPDF_DOCUMENT"
         if ext in OFFICE_SUPPORTED_EXTENSIONS:
             return "OFFICE_DOCUMENT"
+        if ext in DJVU_SUPPORTED_EXTENSIONS:
+            return "DJVU_DOCUMENT"
         if ext in MEDIA_EXTENSIONS:
             return "MEDIA_FILE"
 
