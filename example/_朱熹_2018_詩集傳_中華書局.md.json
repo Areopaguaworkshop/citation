@@ -1,0 +1,27 @@
+{
+  "type": "book",
+  "author": [
+    {
+      "family": "]",
+      "given": "朱熹",
+      "literal": "【宋】宋]朱熹集撰",
+      "suffix": "集撰"
+    },
+    {
+      "family": "趙",
+      "given": "長征",
+      "literal": "趙長征點校",
+      "suffix": "點校"
+    }
+  ],
+  "issued": {
+    "date-parts": [
+      [
+        2018
+      ]
+    ]
+  },
+  "title": "詩集傳",
+  "publisher": "中華書局",
+  "id": "_朱熹_2018_詩集傳_中華書局.md"
+}

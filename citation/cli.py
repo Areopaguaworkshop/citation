@@ -100,10 +100,11 @@ def main():
     else:
         logging.getLogger().setLevel(logging.INFO)
 
-    # Check if --text-direction is used with a non-PDF file
-    if args.text_direction != "horizontal" and not args.input.lower().endswith(".pdf"):
+    # Check if --text-direction is used with a non-PDF/DJVU file
+    is_document_file = args.input.lower().endswith((".pdf", ".djvu"))
+    if args.text_direction != "horizontal" and not is_document_file:
         print(
-            "Warning: --text-direction is only applicable to PDF files and will be ignored.",
+            "Warning: --text-direction is only applicable to PDF or DJVU files and will be ignored.",
             file=sys.stderr,
         )
 

@@ -12,13 +12,12 @@ from pypinyin import pinyin, Style
 # --- Supported File Extensions ---
 
 PYMUPDF_SUPPORTED_EXTENSIONS = [
-    '.pdf', '.xps', '.oxps', '.epub', '.mobi', '.azw', '.fb2', '.cbz', 
+    '.pdf', '.xps', '.oxps', '.epub', '.mobi', '.azw', '.fb2', '.cbz', '.djvu'
 ]
 
 OFFICE_SUPPORTED_EXTENSIONS = [
     '.docx', '.doc', '.rtf', '.odt', 
-    '.pptx', '.ppt', '.odp',
-    '.djvu'  # DjVu format
+    '.pptx', '.ppt', '.odp'
 ]
 
 MEDIA_EXTENSIONS = [

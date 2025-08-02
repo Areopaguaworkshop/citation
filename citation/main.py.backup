@@ -12,10 +12,7 @@ from .utils import (
     create_subset_pdf,
     extract_pdf_text,
 )
-from .file_converter import (
-    convert_to_pdf, convert_djvu_to_pdf_range, count_djvu_pages,
-    count_office_document_pages, convert_office_to_pdf_range
-)
+from .file_converter import convert_to_pdf
 from .type_judge import determine_document_type
 from .model import CitationLLM
 
@@ -58,17 +55,13 @@ class CitationExtractor:
 
             elif input_type == "OFFICE_DOCUMENT":
                 logging.info(f"Detected Office document: {input_source}")
-                # For non-DJVU office documents, use unified page-count-first approach
-                if not input_source.lower().endswith(".djvu"):
-                    return self.extract_from_office_document_unified(
-                        input_source, output_dir, doc_type_override, lang,
-                        text_direction, vertical_lang, page_range
-                    )
-                else:
-                    return self.extract_from_djvu(
-                        input_source, output_dir, doc_type_override, lang,
-                        text_direction, vertical_lang, page_range
-                    )
+                temp_pdf_path = convert_to_pdf(input_source)
+                if not temp_pdf_path:
+                    return None  # Conversion failed
+                return self.extract_from_document(
+                    temp_pdf_path, output_dir, doc_type_override, lang, 
+                    text_direction, vertical_lang, page_range
+                )
 
             elif input_type == "PYMUPDF_DOCUMENT":
                 logging.info(f"Detected PyMuPDF-supported document: {input_source}")
@@ -245,90 +238,3 @@ class CitationExtractor:
         """Determine document type with pre-filtering based on page count."""
         detected_type = determine_document_type(pdf_path, num_pages)
         return detected_type if detected_type in allowed_types else default_type
-    def extract_from_office_document_unified(
-        self,
-        doc_path: str,
-        output_dir: str,
-        doc_type_override: Optional[str],
-        lang: str,
-        text_direction: str,
-        vertical_lang: str,
-        page_range: str,
-    ) -> Optional[Dict]:
-        """Unified function to extract citation from office documents with page-count-first approach."""
-        temp_pdf_path = None
-        try:
-            print(f"📄 Starting unified office document citation extraction...")
-
-            # Step 1: Count pages using LibreOffice
-            print("🔍 Step 1: Analyzing document structure...")
-            num_pages = count_office_document_pages(doc_path)
-                
-            if num_pages == 0:
-                logging.error(f"Could not read document file: {doc_path}")
-                return None
-
-            # Step 2: Document Type Pre-filtering by Page Count (same logic as PDF)
-            print(f"📊 Step 2: Document type pre-filtering from page count ({num_pages} pages)...")
-            if num_pages >= 70:
-                allowed_doc_types = ["book", "thesis"]
-                page_count_hint = "book"
-                # Adjust page range based on total pages
-                if page_range == "1-5, -3":  # default range
-                    page_range = "1-5"
-            else:
-                allowed_doc_types = ["journal", "bookchapter"]
-                page_count_hint = "journal"
-                # Adjust page range based on total pages
-                if page_range == "1-5, -3":  # default range
-                    page_range = "1-3, -3"
-
-            # Step 3: Convert only the specified page range to PDF
-            print(f"⚙️ Step 3: Converting office document pages '{page_range}' to PDF...")
-            temp_pdf_path = convert_office_to_pdf_range(doc_path, page_range, num_pages)
-            
-            if not temp_pdf_path:
-                return None
-
-            # Step 4: Process the converted PDF (skip page analysis since we already know the structure)
-            accumulated_text = self._process_subset_pdf(temp_pdf_path, text_direction)
-            if not accumulated_text.strip():
-                print("❌ No text could be extracted from the converted PDF.")
-                return None
-
-            # Step 5: Document Type Determination
-            print("🔍 Step 5: Determining document type...")
-            doc_type = doc_type_override or self._determine_document_type_filtered(
-                temp_pdf_path, num_pages, allowed_doc_types, page_count_hint
-            )
-            print(f"📋 Determined document type: {doc_type.upper()}")
-
-            # Step 6: LLM Extraction
-            print(f"🤖 Step 6: Extracting citation from accumulated text with LLM...")
-            if text_direction in ["vertical", "auto"] and getattr(self, "_used_vertical_mode", False):
-                vertical_llm = VerticalCitationLLM()
-                extracted_info = vertical_llm.extract_vertical_citation(accumulated_text, doc_type)
-            else:
-                extracted_info = self.llm.extract_citation_from_text(accumulated_text, doc_type)
-            
-            if not extracted_info:
-                print("❌ Failed to extract any citation information with LLM.")
-                return None
-
-            # Step 7: Convert to CSL JSON and save
-            print("💾 Step 7: Converting to CSL JSON and saving...")
-            csl_data = to_csl_json(extracted_info, doc_type)
-            save_citation(csl_data, output_dir)
-            print("✅ Citation extraction completed successfully!")
-            return csl_data
-
-        except Exception as e:
-            logging.error(f"Error extracting citation from office document: {e}")
-            import traceback
-            logging.debug(traceback.format_exc())
-            return None
-        finally:
-            # Clean up the temporary PDF
-            if temp_pdf_path and os.path.exists(temp_pdf_path):
-                os.remove(temp_pdf_path)
-                logging.info(f"Removed temporary PDF: {temp_pdf_path}")

@@ -5,7 +5,7 @@ description = "Extracts citations from PDF, URLs and local media files in CSL-JS
 authors = [{ name = "ajia", email = "yyjfwoaini@gmail.com" }]
 dependencies = [
     "ocrmypdf>=16.10.4",
-    "PyMuPDF>=1.23.0",
+    "pymupdf[mupdf-third]>=1.26.3",
     "requests>=2.31.0",
     "python-dateutil>=2.8.0",
     "lxml>=4.9.0",
