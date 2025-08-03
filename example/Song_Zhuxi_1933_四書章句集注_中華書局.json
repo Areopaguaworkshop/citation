@@ -2,21 +2,20 @@
   "type": "book",
   "author": [
     {
-      "family": "朱",
-      "given": "熹",
-      "literal": "【宋】朱熹撰",
-      "suffix": "撰"
+      "literal": "宋朱熹",
+      "family": "Song",
+      "given": "Zhuxi"
     }
   ],
   "issued": {
     "date-parts": [
       [
-        1944
+        1933
       ]
     ]
   },
   "title": "四書章句集注",
   "publisher": "中華書局",
   "volume": "第一輯",
-  "id": "朱_熹_1944_四書章句集注_中華書局.md"
+  "id": "Song_Zhuxi_1933_四書章句集注_中華書局"
 }

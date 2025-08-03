@@ -845,7 +845,8 @@ class CitationLLM:
             signature = dspy.Signature(
                 "pdf_text -> title, author, publisher, year, location, editor, translator, volume, series, isbn, doi",
                 "Extract citation information from book PDF text. Focus on cover and copyright pages (usually in first 5 pages). "
-                "Look for title in the middle and upper part with biggest font size, author usually right under the title. "
+                "Look for title in the middle and upper part with biggest font size. "
+                'Author field: CRITICAL for Chinese Names - Do NOT split multi-character names. "程俊英" is ONE author. Extract each full name, including dynasty or role indicators (e.g., "【明】王陽明撰", "朱熹注"). '
                 "In copyright page, find publish year and publisher. For Chinese text, extract information similarly. "
                 "Return 'Unknown' for missing fields.",
             )
@@ -873,7 +874,8 @@ class CitationLLM:
             signature = dspy.Signature(
                 "pdf_text -> title, author, thesis_type, year, publisher, location, doi",
                 "Extract citation information from thesis PDF text. Focus on cover and title pages (usually in first 5 pages). "
-                "Look for title in the middle and upper part with biggest font size, author usually right under the title. "
+                "Look for title in the middle and upper part with biggest font size. "
+                'Author field: CRITICAL for Chinese Names - Do NOT split multi-character names. "程俊英" is ONE author. Extract each full name, including dynasty or role indicators (e.g., "【明】王陽明撰", "朱熹注"). '
                 "Identify if it's a PhD thesis or Master thesis. Publisher should be a university or college. "
                 "For Chinese text, extract information similarly. Return 'Unknown' for missing fields.",
             )
@@ -900,7 +902,8 @@ class CitationLLM:
             signature = dspy.Signature(
                 "pdf_text -> title, author, container_title, year, volume, issue, page_numbers, isbn, doi",
                 "Extract citation information from journal PDF text. Focus on first page header and footer. "
-                "Look for title in first line with biggest font size, author usually right under the title. "
+                "Look for title in first line with biggest font size. "
+                'Author field: CRITICAL for Chinese Names - Do NOT split multi-character names. "程俊英" is ONE author. Extract each full name, including dynasty or role indicators (e.g., "【明】王陽明撰", "朱熹注"). '
                 "Find journal name (as container_title), year, volume, and issue number in header or footer of first page. "
                 "Page numbers format should be 'start-end' (e.g., '20-41'). "
                 "For Chinese text, extract information similarly. Return 'Unknown' for missing fields.",
@@ -934,7 +937,7 @@ class CitationLLM:
                 "Analyze the text from a book chapter and extract its citation metadata. "
                 "Identify the following fields: "
                 "- title: The title of the chapter itself. "
-                "- author: The author(s) of the chapter. "
+                '- author: The author(s) of the chapter. CRITICAL for Chinese Names - Do NOT split multi-character names. "程俊英" is ONE author. Extract each full name, including dynasty or role indicators (e.g., "【明】王陽明撰", "朱熹注"). '
                 "- container-title: The title of the book that contains the chapter. "
                 "- editor: The editor(s) of the book, often found near 'edited by'. "
                 "- publisher: The publisher of the book. "

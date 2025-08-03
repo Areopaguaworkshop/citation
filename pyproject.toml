@@ -20,7 +20,7 @@ dependencies = [
   "paddleocr>=3.1.0",
   "paddlepaddle>=3.1.0",
   "setuptools>=80.9.0",
-  "langdetect>=1.0.9",
+  "fasttext>=0.9.2",
 ]
 readme = "README.md"
 requires-python = ">= 3.12"

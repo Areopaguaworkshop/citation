@@ -368,109 +368,146 @@ AUTHOR_TITLES = [
     "博士", "神父", "教授", "老师", "先生"
 ]
 
-def format_author_csl(author_input) -> list:
-    """Formats author input (string or list of dicts) into CSL-JSON compliant list of objects."""
-    from pypinyin import pinyin, Style
+def extract_dynasty_author_role(text: str) -> Tuple[str, str, str]:
+    """Extract dynasty, author name, and role from text like '【宋】朱熹撰'"""
+    dynasty = ""
+    author_name = ""
+    role = ""
 
-    if not author_input:
-        return []
-    
-    # Handle new structured format (list of dictionaries)
-    if isinstance(author_input, list):
-        authors = []
-        for author_dict in author_input:
-            if isinstance(author_dict, dict):
-                # Use the structured format directly
-                csl_author = {}
-                if author_dict.get("family"):
-                    csl_author["family"] = author_dict["family"]
-                if author_dict.get("given"):
-                    csl_author["given"] = author_dict["given"]
-                if author_dict.get("literal"):
-                    csl_author["literal"] = author_dict["literal"]
-                if author_dict.get("dynasty"):
-                    # Add dynasty info to suffix or literal
-                    dynasty_info = f"【{author_dict["dynasty"]}】"
-                    if "literal" in csl_author:
-                        if not csl_author["literal"].startswith("【"):
-                            csl_author["literal"] = dynasty_info + csl_author["literal"]
-                if author_dict.get("role"):
-                    # Add role to suffix
-                    csl_author["suffix"] = author_dict["role"]
-                authors.append(csl_author)
-        return authors
-    
-    # Handle legacy string format
-    author_name = str(author_input)
-    if not author_name.strip():
+    # Extract dynasty from various bracket styles
+    dynasty_pattern = r"[【\[\(](.*?)[】\]\〕\)]"
+    dynasty_match = re.search(dynasty_pattern, text)
+
+    if dynasty_match:
+        dynasty = dynasty_match.group(1).strip()
+        # Remove the matched bracketed part and any immediate OCR noise after it
+        text_after_dynasty = text[dynasty_match.end():].lstrip()
+
+        # Clean up common OCR noise where dynasty name is repeated
+        if text_after_dynasty.startswith(dynasty):
+            text_after_dynasty = text_after_dynasty[len(dynasty):]
+
+        # Further clean stray characters
+        text = text_after_dynasty.lstrip("】』」)》] ")
+
+    # Extract role indicators (撰, 著, 注, 編, etc.)
+    role_pattern = r"(集撰|點校|[撰著注註編輯譯序跋])"
+    role_match = re.search(role_pattern, text)
+    if role_match:
+        role = role_match.group(1)
+        text = re.sub(role_pattern, "", text)
+
+    # Remaining text is the author name
+    author_name = text.strip()
+
+    return dynasty, author_name, role
+
+def parse_multiple_authors(author_string: str) -> List[Dict]:
+    """
+    Parse multiple authors with dynasty and role indicators, and split CJK names.
+    Returns a list of structured dictionaries for each author.
+    """
+    if not author_string:
         return []
 
-    authors = []
-    # Regex to check for CJK and Latin characters
+    # Regex to check for CJK characters
     def is_cjk(s): return re.search(r"[\u4e00-\u9fff\u3040-\u30ff\uac00-\ud7af]", s)
-    def is_latin(s): return re.search(r"[a-zA-Z]", s)
 
-    # Step 1: Smart Separation for multiple authors
-    processed_author_name = re.sub(r"[\n;,、]", ",", author_name)
-    # Add a comma between CJK characters and Latin characters to help splitting
-    processed_author_name = re.sub(r"([\u4e00-\u9fff])\s+([a-zA-Z])", r"\1,\2", processed_author_name)
-    processed_author_name = re.sub(r"([a-zA-Z])\s+([\u4e00-\u9fff])", r"\1,\2", processed_author_name)
-    # Add a comma between CJK names separated by space
-    processed_author_name = re.sub(r"([\u4e00-\u9fff]{2,})\s+([\u4e00-\u9fff]{2,})", r"\1,\2", processed_author_name)
+    # Split by common separators
+    author_parts = re.split(r'[,，;；\s]+', author_string)
+    parsed_authors = []
 
-
-    name_parts = re.split(r"\s+and\s+|,|", processed_author_name, flags=re.IGNORECASE)
-
-    # Step 2: Formatting Individual Names
-    for name in name_parts:
-        name = name.strip()
-        if not name:
+    for part in author_parts:
+        part = part.strip()
+        if not part:
             continue
 
-        # Step 2a: Extract Suffix/Title
-        suffix = None
-        for title in AUTHOR_TITLES:
-            if name.endswith(f" {title}") or name.endswith(title):
-                suffix = title
-                name = name[:-len(title)].strip()
-                break
+        dynasty, author_name, role = extract_dynasty_author_role(part)
         
-        author_obj = {}
+        author_info = {
+            "literal": author_name,
+            "dynasty": dynasty,
+            "role": role,
+            "family": "",
+            "given": ""
+        }
 
-        # Step 2b: Parse the name
-        if is_cjk(name) and not is_latin(name): # Pure CJK name
-            literal_name = name
-            if len(name) in [2, 3, 4]:
-                family = name[0]
-                given = name[1:]
-                if len(name) == 4:
-                    family = name[:2]
-                    given = name[2:]
-            else:
-                family = name[0]
-                given = name[1:]
-            
+        # Split CJK names into family and given
+        if is_cjk(author_name):
+            literal_name = author_name.replace(" ", "")
+            if len(literal_name) == 2:
+                author_info["family"] = literal_name[0]
+                author_info["given"] = literal_name[1]
+            elif len(literal_name) == 3:
+                author_info["family"] = literal_name[0]
+                author_info["given"] = literal_name[1:]
+            elif len(literal_name) == 4:
+                author_info["family"] = literal_name[:2]
+                author_info["given"] = literal_name[2:]
+            else: # Default for other lengths
+                author_info["family"] = literal_name[0]
+                author_info["given"] = literal_name[1:]
+        
+        parsed_authors.append(author_info)
+
+    return parsed_authors
+
+def format_author_csl(author_input) -> list:
+    """
+    Formats author input (string or list of dicts) into CSL-JSON compliant list.
+    """
+    if not author_input:
+        return []
+
+    # If input is a raw string, parse it first
+    if isinstance(author_input, str):
+        author_list = parse_multiple_authors(author_input)
+    elif isinstance(author_input, list):
+        # If it's a list of dicts, ensure it has the right structure, otherwise parse it
+        if all(isinstance(d, dict) and "literal" in d for d in author_input):
+             author_list = author_input
+        else:
+             # Re-parse if the list is not in the expected structured format
+             author_list = parse_multiple_authors(" ".join(map(str, author_input)))
+    else:
+        return []
+
+    authors_csl = []
+    for author_data in author_list:
+        if not isinstance(author_data, dict):
+            continue
+
+        csl_author = {"literal": author_data.get("literal", "")}
+
+        # Handle family/given names, converting to Pinyin for CJK
+        family = author_data.get("family", "")
+        given = author_data.get("given", "")
+
+        if family and given:
             try:
                 family_pinyin = "".join(item[0] for item in pinyin(family, style=Style.NORMAL)).title()
                 given_pinyin = "".join(item[0] for item in pinyin(given, style=Style.NORMAL)).title()
-                author_obj = {"family": family_pinyin, "given": given_pinyin, "literal": literal_name}
-            except:
-                author_obj = {"literal": literal_name}
-        else: # Western or mixed-language name
-            parts = name.split()
-            if len(parts) >= 2:
-                family = parts[-1]
-                given = " ".join(parts[:-1])
-                author_obj = {"family": family, "given": given}
-            else:
-                author_obj = {"literal": name}
-
-        if suffix:
-            author_obj["suffix"] = suffix
+                csl_author["family"] = family_pinyin
+                csl_author["given"] = given_pinyin
+            except Exception:
+                # Fallback for non-pinyin convertible names
+                csl_author["family"] = family
+                csl_author["given"] = given
         
-        authors.append(author_obj)
+        # Assemble suffix from dynasty and role
+        suffix_parts = []
+        if author_data.get("dynasty"):
+            suffix_parts.append(f"【{author_data['dynasty']}】")
+        if author_data.get("role"):
+            suffix_parts.append(author_data['role'])
+        
+        if suffix_parts:
+            csl_author["suffix"] = " ".join(suffix_parts)
+            
+        authors_csl.append(csl_author)
 
-    return authors
+    return authors_csl
+
 
 
 
@@ -579,11 +616,12 @@ def to_csl_json(data: Dict, doc_type: str) -> Dict:
     base_id = "_".join(cleaned_parts)
 
     if not base_id:
-        csl["id"] = "citation-" + os.urandom(4).hex() + ".md"  # Fallback ID
+        csl["id"] = "citation-" + os.urandom(4).hex()
     else:
-        csl["id"] = base_id + ".md"
+        csl["id"] = base_id
 
     return csl
+
 
 
 def extract_publisher_from_domain(url: str) -> Optional[str]:

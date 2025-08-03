@@ -5,17 +5,17 @@
 <h1 align="center">🔍 Citation Extractor</h1>
 
 <p align="center">
-  <strong>Bridging the Trust Gap in the AI Era</strong>
+  <strong>We're living in an era where AI can write beautifully, but can't cite properly.</strong>
   <br>
   <em>Because every claim deserves a source, and every source deserves proper citation.</em>
 </p>
 
 <p align="center">
-  <a href="#-why-this-matters">Why This Matters</a> •
-  <a href="#-features">Features</a> •
-  <a href="#-quick-start">Quick Start</a> •
-  <a href="#-usage">Usage</a> •
-  <a href="#-contributing">Contributing</a>
+  <a href="#--why-this-matters">Why This Matters</a> •
+  <a href="#--features">Features</a> •
+  <a href="#--quick-start">Quick Start</a> •
+  <a href="#--usage">Usage</a> •
+  <a href="#--contributing">Contributing</a>
 </p>
 
 <p align="center">
@@ -46,25 +46,25 @@ While LLMs struggle with proper citations, this tool excels at extracting struct
 ## 🌟 Features
 
 ### 🎯 **Universal Source Support**
-- **📄 PDFs**: Academic papers, books, theses, book chapters
-- **🌐 Web URLs**: Articles, blog posts, online publications
-- **🎥 Media Files**: Video lectures, podcasts, audio recordings
+- **📄 Document Versatility**: Handles `.pdf`, `.docx`, `.djvu`, `.epub`, and more.
+- **🌐 Web & Media**: Extracts citations directly from URLs and media files (`.mp4`, `.mp3`).
 
 ### 🧠 **AI-Powered Intelligence**
-- **Smart Document Classification**: Automatically detects if it's a journal article, book, thesis, or book chapter
-- **Multilingual OCR**: Handles English, Chinese (Simplified & Traditional), and more
-- **Flexible LLM Backend**: Works with Ollama (local) or cloud APIs (Gemini, OpenAI)
+- **Smart Document Classification**: Automatically detects if a source is a book, journal article, thesis, or chapter.
+- **Advanced, Multilingual OCR**: Accurately processes scanned documents, including those with **vertical text** layouts (e.g., Chinese, Japanese).
+- **Smarter Language Detection**: Intelligently skips blank cover pages to find the first page with text, ensuring the correct language is used for OCR.
+- **Automatic OCR Error Correction**: Proactively fixes common OCR mistakes (e.g., `郭庆沙` → `郭庆藩`) before extraction for higher accuracy.
+- **Flexible LLM Backend**: Works with Ollama (local) or cloud APIs (Gemini, OpenAI).
 
 ### 📚 **Research-Grade Output**
-- **CSL-JSON Standard**: Compatible with Zotero, Mendeley, EndNote, and all major reference managers
-- **Multiple Citation Styles**: Chicago, APA, MLA, and any CSL style you need
-- **Structured Metadata**: Author, title, publication date, DOI, ISBN, and more
+- **CSL-JSON Standard**: Compatible with Zotero, Mendeley, and all major reference managers.
+- **Multiple Citation Styles**: Instantly format in Chicago, APA, MLA, or any other CSL style.
+- **Rich, Structured Metadata**: Captures author, title, date, DOI, ISBN, and even complex author details like historical dynasties (`[清]`).
 
-### ⚡ **Streamlined Performance**
-- **Smart Page Selection**: Processes only the most relevant pages for speed
-- **Iterative Extraction**: Efficiently extracts citation data with early stopping when sufficient information is found
-- **Offline Processing**: Works entirely offline for PDF documents without requiring external API calls
-- **Batch Processing**: Handle multiple documents efficiently
+### ⚡ **Optimized Performance**
+- **Smart Page Selection**: Processes only the most relevant pages for speed.
+- **Iterative Extraction**: Stops as soon as all essential citation fields are found.
+- **Batch Processing**: Handle multiple documents efficiently.
 
 ## 🚀 Quick Start
 
@@ -96,8 +96,8 @@ citation "path/to/research-paper.pdf"
 # Extract from a URL
 citation "https://www.nature.com/articles/s41586-023-06627-7"
 
-# Extract from a video
-citation "path/to/conference-talk.mp4"
+# Extract from a document with vertical text
+citation "path/to/vertical-text-document.pdf" --text-direction vertical
 ```
 
 ## 📖 Usage
@@ -150,61 +150,14 @@ if csl_data:
 ### Advanced Configuration
 
 ```bash
-# For non-English documents
-citation "chinese-paper.pdf" --lang chi_sim+eng
+# For non-English documents, let the tool auto-detect the language
+citation "chinese-paper.pdf" --lang auto
+
+# Or specify manually
+citation "another-paper.pdf" --lang chi_sim+eng
 
 # Verbose output for debugging
 citation "document.pdf" --verbose
-
-# Custom citation style (place .csl file in citation/styles/)
-citation "paper.pdf" --citation-style nature
-```
-
-## 🎯 Use Cases
-
-### 📚 **Academic Researchers**
-- Automatically cite papers you're reading
-- Build bibliographies from PDF collections
-- Ensure proper attribution in literature reviews
-
-### 🎓 **Students**
-- Generate citations for thesis references
-- Create bibliographies for term papers
-- Verify and format existing citations
-
-### 📰 **Content Creators**
-- Add credible sources to blog posts
-- Cite academic backing for claims
-- Build trust with properly attributed content
-
-### 🤖 **AI Developers**
-- Add citation capabilities to AI applications
-- Verify sources for AI-generated content
-- Build trustworthy AI systems
-
-## 🛠️ Supported LLM Providers
-
-| Provider | Models | Setup |
-|----------|---------|-------|
-| **Ollama** (Local) | `qwen3`, `llama3`, `mistral` | Install Ollama |
-| **Google Gemini** | `gemini-1.5-flash`, `gemini-1.5-pro` | Set API key |
-| **OpenAI** | `gpt-4`, `gpt-3.5-turbo` | Set API key |
-
-## 🌈 Examples
-
-### Extract from Academic Paper
-```bash
-citation "https://arxiv.org/pdf/2301.07041.pdf"
-```
-
-### Extract from News Article
-```bash
-citation "https://www.bbc.com/news/science-environment-64234567"
-```
-
-### Extract from Video Lecture
-```bash
-citation "MIT_6.034_Lecture_1.mp4"
 ```
 
 ## 🤝 Contributing
@@ -238,14 +191,6 @@ pytest
 black .
 ```
 
-### 🎯 Priority Areas
-
-- **🔍 Enhanced Source Detection**: Better recognition of document types
-- **🌐 Web Scraping**: Improved extraction from various websites
-- **🎥 Media Support**: Better metadata extraction from videos/audio
-- **📊 Batch Processing**: GUI for handling multiple documents
-- **🔗 Integration**: Plugins for popular reference managers
-
 ## 🏆 Acknowledgments
 
 This project stands on the shoulders of giants:
@@ -257,12 +202,6 @@ This project stands on the shoulders of giants:
 ## 📄 License
 
 MIT License - feel free to use this in your projects, commercial or otherwise.
-
-## 🔗 Links
-
-- **📦 PyPI**: https://pypi.org/project/cite-extractor/
-- **🐛 Issues**: [Report bugs or request features](https://github.com/your-username/citation-extractor/issues)
-- **💬 Discussions**: [Join the conversation](https://github.com/your-username/citation-extractor/discussions)
 
 ---
 

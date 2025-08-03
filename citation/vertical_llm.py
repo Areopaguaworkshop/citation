@@ -2,6 +2,7 @@ import re
 import dspy
 from typing import Dict, List, Tuple, Optional
 from .model import CitationLLM
+from .utils import parse_multiple_authors
 
 
 class VerticalCitationExtraction(dspy.Signature):
@@ -108,7 +109,7 @@ class VerticalCitationLLM(CitationLLM):
 
             # Process authors with dynasty and role parsing
             if result.author:
-                authors_info = self.parse_multiple_authors(result.author)
+                authors_info = parse_multiple_authors(result.author)
                 citation_info["author"] = authors_info
 
             # Convert years
@@ -135,75 +136,6 @@ class VerticalCitationLLM(CitationLLM):
             print(f"❌ Vertical citation extraction failed: {e}")
             # Fallback to regular LLM
             return super().extract_citation_from_text(text, doc_type)
-
-    def parse_multiple_authors(self, author_string: str) -> List[Dict]:
-        """Parse multiple authors with dynasty and role indicators, handling Chinese names correctly."""
-        if not author_string:
-            return []
-
-        # Split by common separators like comma, semicolon, and spaces
-        author_parts = re.split(r'[,，;；\s]+', author_string)
-        parsed_authors = []
-
-        for part in author_parts:
-            part = part.strip()
-            if not part:
-                continue
-
-            dynasty, author_name, role = self.extract_dynasty_author_role(part)
-
-            # Treat the remaining author_name as a single literal unit.
-            author_info = {
-                "literal": author_name
-            }
-
-            # Add dynasty and role to suffix for CSL compatibility
-            suffix_parts = []
-            if dynasty:
-                suffix_parts.append(f"【{dynasty}】")
-            if role:
-                suffix_parts.append(role)
-
-            if suffix_parts:
-                author_info["suffix"] = " ".join(suffix_parts)
-
-            parsed_authors.append(author_info)
-
-        return parsed_authors
-
-    def extract_dynasty_author_role(self, text: str) -> Tuple[str, str, str]:
-        """Extract dynasty, author name, and role from text like '【宋】朱熹撰'"""
-        dynasty = ""
-        author_name = ""
-        role = ""
-
-        # Extract dynasty from various bracket styles
-        dynasty_pattern = r"[【\[〔\(]([^】\]〕\)]*)[】\]〕\)]"
-        dynasty_match = re.search(dynasty_pattern, text)
-
-        if dynasty_match:
-            dynasty = dynasty_match.group(1).strip()
-            # Remove the matched bracketed part and any immediate OCR noise after it
-            text_after_dynasty = text[dynasty_match.end():].lstrip()
-
-            # Clean up common OCR noise where dynasty name is repeated
-            if text_after_dynasty.startswith(dynasty):
-                text_after_dynasty = text_after_dynasty[len(dynasty):]
-
-            # Further clean stray characters
-            text = text_after_dynasty.lstrip("】』」)》] ")
-
-        # Extract role indicators (撰, 著, 注, 編, etc.)
-        role_pattern = r"(集撰|點校|[撰著注註編輯譯序跋])"
-        role_match = re.search(role_pattern, text)
-        if role_match:
-            role = role_match.group(1)
-            text = re.sub(role_pattern, "", text)
-
-        # Remaining text is the author name
-        author_name = text.strip()
-
-        return dynasty, author_name, role
 
     def convert_chinese_japanese_year(self, year_str: str) -> str:
         """Convert Chinese/Japanese year formats to Arabic numerals"""
