@@ -5,6 +5,7 @@ import fitz  # PyMuPDF
 from paddleocr import PaddleOCR, PPStructureV3
 import numpy as np
 from typing import Optional, List
+import traceback
 
 # Global variable to hold the initialized OCR engine
 structure_engine = None
@@ -21,9 +22,14 @@ def get_structure_engine(lang: str = 'ch'):
     if structure_engine is None or current_ocr_config != new_config:
         logging.info(f"Initializing PPStructureV3 with language: {lang}")
         
-        # Initialize PPStructureV3 without the unsupported parameters
-        # Language configuration is handled internally by PPStructureV3
-        structure_engine = PPStructureV3()
+        try:
+            # Initialize PPStructureV3 without the unsupported parameters
+            # Language configuration is handled internally by PPStructureV3
+            structure_engine = PPStructureV3()
+        except Exception as e:
+            logging.error(f"Failed to initialize PPStructureV3: {e}")
+            traceback.print_exc()
+            return None
         
         current_ocr_config = new_config
     return structure_engine
@@ -105,19 +111,23 @@ def extract_layout_boxes(result):
     if not result:
         return boxes
     
-    for page_result in result:
-        # Extract from layout detection results
-        if 'layout_det_res' in page_result and 'boxes' in page_result['layout_det_res']:
-            for box in page_result['layout_det_res']['boxes']:
-                if 'coordinate' in box and 'label' in box:
-                    coord = box['coordinate']
-                    # Convert coordinate to list if it's numpy array
-                    bbox = coord.tolist() if hasattr(coord, 'tolist') else coord
-                    boxes.append({
-                        'type': box['label'],
-                        'bbox': bbox,
-                        'score': box.get('score', 0.0)
-                    })
+    try:
+        for page_result in result:
+            # Extract from layout detection results
+            if 'layout_det_res' in page_result and 'boxes' in page_result['layout_det_res']:
+                for box in page_result['layout_det_res']['boxes']:
+                    if 'coordinate' in box and 'label' in box:
+                        coord = box['coordinate']
+                        # Convert coordinate to list if it's a numpy array
+                        bbox = coord.tolist() if hasattr(coord, 'tolist') else coord
+                        boxes.append({
+                            'type': box['label'],
+                            'bbox': bbox,
+                            'score': box.get('score', 0.0)
+                        })
+    except Exception as e:
+        logging.error(f"Error extracting layout boxes: {e}")
+        traceback.print_exc()
     
     return boxes
 
@@ -129,19 +139,23 @@ def extract_text_results(result):
     if not result:
         return text_results
     
-    for page_result in result:
-        # Extract from overall OCR results
-        if 'overall_ocr_res' in page_result:
-            ocr_res = page_result['overall_ocr_res']
-            if 'rec_texts' in ocr_res and 'rec_boxes' in ocr_res:
-                texts = ocr_res['rec_texts']
-                boxes = ocr_res['rec_boxes']
-                for i, (text, box) in enumerate(zip(texts, boxes)):
-                    if text.strip():  # Only include non-empty text
-                        text_results.append({
-                            'text': text,
-                            'bbox': box.tolist() if hasattr(box, 'tolist') else box
-                        })
+    try:
+        for page_result in result:
+            # Extract from overall OCR results
+            if 'overall_ocr_res' in page_result:
+                ocr_res = page_result['overall_ocr_res']
+                if 'rec_texts' in ocr_res and 'rec_boxes' in ocr_res:
+                    texts = ocr_res['rec_texts']
+                    boxes = ocr_res['rec_boxes']
+                    for i, (text, box) in enumerate(zip(texts, boxes)):
+                        if text.strip():  # Only include non-empty text
+                            text_results.append({
+                                'text': text,
+                                'bbox': box.tolist() if hasattr(box, 'tolist') else box
+                            })
+    except Exception as e:
+        logging.error(f"Error extracting text results: {e}")
+        traceback.print_exc()
     
     return text_results
 
@@ -150,85 +164,106 @@ def is_vertical_from_layout(pix: fitz.Pixmap, lang: str) -> bool:
     Detects if the text layout is predominantly vertical by analyzing the layout regions.
     """
     engine = get_structure_engine(lang=lang)
+    if engine is None:
+        logging.error("Failed to get PPStructureV3 engine")
+        return False
     
-    img_array = np.frombuffer(pix.samples, dtype=np.uint8).reshape(pix.height, pix.width, 3)
+    try:
+        img_array = np.frombuffer(pix.samples, dtype=np.uint8).reshape(pix.height, pix.width, 3)
 
-    # Use the predict method with the correct API
-    result = engine.predict(img_array)
-    logging.info(f"PP-Structure raw result for layout detection: {result}")
+        # Use the predict method with the correct API
+        result = engine.predict(img_array)
+        logging.info(f"PP-Structure raw result for layout detection: {result}")
 
-    # Extract layout boxes from the new result format
-    layout_boxes = extract_layout_boxes(result)
-    
-    if not layout_boxes:
-        logging.info("No layout boxes detected, falling back to text regions")
-        # Fallback to text results if no layout boxes
-        text_results = extract_text_results(result)
-        if not text_results:
-            return False
+        # Extract layout boxes from the new result format
+        layout_boxes = extract_layout_boxes(result)
         
-        aspect_ratios = []
-        for text_result in text_results:
-            bbox = text_result['bbox']
-            if len(bbox) >= 4:
-                height = bbox[3] - bbox[1]
-                width = bbox[2] - bbox[0]
-                if width > 0:
-                    aspect_ratios.append(height / width)
-    else:
-        # Analyze layout boxes
-        aspect_ratios = []
-        for box in layout_boxes:
-            # Focus on text-like regions
-            if box['type'].lower() in ['text', 'paragraph', 'title', 'header']:
-                bbox = box['bbox']
+        if not layout_boxes:
+            logging.info("No layout boxes detected, falling back to text regions")
+            # Fallback to text results if no layout boxes
+            text_results = extract_text_results(result)
+            if not text_results:
+                return False
+            
+            aspect_ratios = []
+            for text_result in text_results:
+                bbox = text_result['bbox']
+                # Correctly handle bbox format - it should be [x1, y1, x2, y2]
                 if len(bbox) >= 4:
-                    height = bbox[3] - bbox[1]
                     width = bbox[2] - bbox[0]
+                    height = bbox[3] - bbox[1]
                     if width > 0:
                         aspect_ratios.append(height / width)
-    
-    if not aspect_ratios:
-        logging.info("No text regions found for vertical analysis")
-        return False
+        else:
+            # Analyze layout boxes
+            aspect_ratios = []
+            for box in layout_boxes:
+                # Focus on text-like regions
+                if box['type'].lower() in ['text', 'paragraph', 'title', 'header']:
+                    bbox = box['bbox']
+                    # Handle bbox format - should be [x1, y1, x2, y2]
+                    if len(bbox) >= 4:
+                        width = bbox[2] - bbox[0]
+                        height = bbox[3] - bbox[1]
+                        if width > 0:
+                            aspect_ratios.append(height / width)
         
-    median_ratio = np.median(aspect_ratios)
-    logging.info(f"Median aspect ratio of text regions: {median_ratio:.2f}")
-    
-    return median_ratio > 1.5  # Use a stricter threshold for layout blocks
+        if not aspect_ratios:
+            logging.info("No text regions found for vertical analysis")
+            return False
+            
+        median_ratio = np.median(aspect_ratios)
+        logging.info(f"Median aspect ratio of text regions: {median_ratio:.2f}")
+        
+        return median_ratio > 1.5  # Use a stricter threshold for layout blocks
+        
+    except Exception as e:
+        logging.error(f"Error in PPStructureV3 prediction: {e}")
+        traceback.print_exc()
+        return False
 
 def extract_text_from_images_paddleocr(images: List[fitz.Pixmap], lang: str) -> str:
     """
     Extracts and sorts text from a list of page images using PP-Structure.
     """
     engine = get_structure_engine(lang=lang)
+    if engine is None:
+        logging.error("Failed to get PPStructureV3 engine")
+        return ""
+    
     full_doc_text = []
 
     for pix in images:
         if is_page_blank(pix):
             continue
 
-        img_array = np.frombuffer(pix.samples, dtype=np.uint8).reshape(pix.height, pix.width, 3).copy()
-        # Use the predict method with the correct API
-        result = engine.predict(img_array)
+        try:
+            img_array = np.frombuffer(pix.samples, dtype=np.uint8).reshape(pix.height, pix.width, 3).copy()
+            # Use the predict method with the correct API
+            result = engine.predict(img_array)
 
-        if not result:
-            continue
+            if not result:
+                continue
 
-        # Extract text results from the new format
-        text_results = extract_text_results(result)
-        
-        if not text_results:
+            # Extract text results from the new format
+            text_results = extract_text_results(result)
+            
+            if not text_results:
+                continue
+            
+            # Sort regions by right-to-left, then top-to-bottom.
+            # For bbox format [x1, y1, x2, y2], sort by -x2 (right edge) then by y1 (top edge)
+            text_results.sort(key=lambda r: (-r['bbox'][2], r['bbox'][1]))
+            
+            page_text_parts = []
+            for text_result in text_results:
+                page_text_parts.append(text_result['text'])
+            
+            page_text = "\n".join(page_text_parts)
+            full_doc_text.append(page_text)
+        except Exception as e:
+            logging.error(f"Error processing page with PPStructureV3: {e}")
+            traceback.print_exc()
             continue
-        
-        # Sort regions by right-to-left, then top-to-bottom (for vertical text)
-        text_results.sort(key=lambda r: (-r['bbox'][0], r['bbox'][1]))
-        
-        page_text_parts = []
-        for text_result in text_results:
-            page_text_parts.append(text_result['text'])
-        
-        page_text = "\n".join(page_text_parts)
-        full_doc_text.append(page_text)
 
     return "\n\n---\n\n".join(full_doc_text)

@@ -26,7 +26,7 @@ class VerticalCitationExtraction(dspy.Signature):
         desc="Series or collection name - usually prominently displayed large text like 新編諸子集成"
     )
     author = dspy.OutputField(
-        desc='Author name with dynasty and role indicators (e.g., "【明】王陽明撰, 朱熹注")'
+        desc='Author(s) of the document. CRITICAL for Chinese Names: Do NOT split multi-character names. "程俊英" is ONE author. Multiple authors are separated by delimiters like commas, semicolons, or spaces (e.g., "程俊英 蔣見元"). Extract each full name as a distinct item, including any dynasty or role indicators (e.g., "【明】王陽明撰", "朱熹注").'
     )
     publisher = dspy.OutputField(
         desc="Publisher name in traditional characters")
@@ -137,12 +137,12 @@ class VerticalCitationLLM(CitationLLM):
             return super().extract_citation_from_text(text, doc_type)
 
     def parse_multiple_authors(self, author_string: str) -> List[Dict]:
-        """Parse multiple authors with dynasty and role indicators"""
+        """Parse multiple authors with dynasty and role indicators, handling Chinese names correctly."""
         if not author_string:
             return []
 
-        # Split by common separators
-        author_parts = re.split(r"[,，;；]", author_string)
+        # Split by common separators like comma, semicolon, and spaces
+        author_parts = re.split(r'[,，;；\s]+', author_string)
         parsed_authors = []
 
         for part in author_parts:
@@ -152,23 +152,12 @@ class VerticalCitationLLM(CitationLLM):
 
             dynasty, author_name, role = self.extract_dynasty_author_role(part)
 
-            # Parse Chinese name into family and given names
-            if len(author_name) >= 2:
-                # For Chinese names, typically first character is family name
-                family_name = author_name[0]
-                given_name = author_name[1:]
-            else:
-                family_name = author_name
-                given_name = ""
-
-            # Create structured author info
+            # Treat the remaining author_name as a single literal unit.
             author_info = {
-                "family": family_name,
-                "given": given_name,
-                "literal": part.strip(),  # Keep original format
+                "literal": author_name
             }
 
-            # Add dynasty to suffix for CSL compatibility
+            # Add dynasty and role to suffix for CSL compatibility
             suffix_parts = []
             if dynasty:
                 suffix_parts.append(f"【{dynasty}】")
@@ -206,6 +195,15 @@ class VerticalCitationLLM(CitationLLM):
 
         # Extract role indicators (撰, 著, 注, 編, etc.)
         role_pattern = r"(集撰|點校|[撰著注註編輯譯序跋])"
+        role_match = re.search(role_pattern, text)
+        if role_match:
+            role = role_match.group(1)
+            text = re.sub(role_pattern, "", text)
+
+        # Remaining text is the author name
+        author_name = text.strip()
+
+        return dynasty, author_name, role
 
     def convert_chinese_japanese_year(self, year_str: str) -> str:
         """Convert Chinese/Japanese year formats to Arabic numerals"""

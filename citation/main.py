@@ -42,6 +42,9 @@ class CitationExtractor:
         temp_pdf_path = None
         try:
             input_type = get_input_type(input_source)
+            
+            # Initialize num_pages to 0
+            num_pages = 0
 
             if input_type == "URL":
                 logging.info(f"Detected URL input: {input_source}")
@@ -55,24 +58,44 @@ class CitationExtractor:
                 # return self.extract_from_media_file(input_source, output_dir)
                 pass # Placeholder for existing media file logic
 
+            # For all document types, we need to count pages first to adjust page_range if needed.
             elif input_type == "OFFICE_DOCUMENT":
+                from .file_converter import count_office_document_pages
                 logging.info(f"Detected Office document: {input_source}")
-                return self.extract_from_office_document_unified(
-                    input_source, output_dir, doc_type_override, lang,
-                    text_direction, vertical_lang, page_range
-                )
+                num_pages = count_office_document_pages(input_source)
 
             elif input_type == "DJVU_DOCUMENT":
+                from .file_converter import count_djvu_pages
                 logging.info(f"Detected DJVU document: {input_source}")
-                return self.extract_from_djvu_document(
-                    input_source, output_dir, doc_type_override, lang,
-                    text_direction, vertical_lang, page_range
-                )
+                num_pages = count_djvu_pages(input_source)
 
             elif input_type == "PYMUPDF_DOCUMENT":
                 logging.info(f"Detected PyMuPDF-supported document: {input_source}")
-                # For PyMuPDF documents, we count pages first, then proceed.
                 num_pages, _ = self._analyze_document_structure(input_source)
+
+            # Adjust page_range based on page count before any conversion or extraction
+            if num_pages > 0:
+                if num_pages >= 70 and page_range == "1-5, -3":
+                    page_range = "1-5"
+                    logging.info(f"Large document ({num_pages} pages), adjusting page range to '{page_range}'")
+                elif num_pages < 70 and page_range == "1-5, -3":
+                    page_range = "1-3, -3"
+                    logging.info(f"Small document ({num_pages} pages), adjusting page range to '{page_range}'")
+
+            # Now, proceed with extraction using the (potentially updated) page_range
+            if input_type == "OFFICE_DOCUMENT":
+                return self.extract_from_office_document_unified(
+                    input_source, output_dir, doc_type_override, lang,
+                    text_direction, vertical_lang, page_range, num_pages
+                )
+
+            elif input_type == "DJVU_DOCUMENT":
+                return self.extract_from_djvu_document(
+                    input_source, output_dir, doc_type_override, lang,
+                    text_direction, vertical_lang, page_range, num_pages
+                )
+
+            elif input_type == "PYMUPDF_DOCUMENT":
                 if num_pages == 0:
                     logging.error(f"Could not read document file: {input_source}")
                     return None
@@ -82,11 +105,13 @@ class CitationExtractor:
                 )
 
             else:
-                logging.error(f"Unknown or unsupported input type: {input_source}")
-                if os.path.exists(input_source):
-                    logging.error(f"File exists but is not a supported format.")
-                else:
-                    logging.error(f"File does not exist: {input_source}")
+                # This handles URL, MEDIA_FILE, and unknown types
+                if input_type not in ["URL", "MEDIA_FILE"]:
+                    logging.error(f"Unknown or unsupported input type: {input_source}")
+                    if os.path.exists(input_source):
+                        logging.error(f"File exists but is not a supported format.")
+                    else:
+                        logging.error(f"File does not exist: {input_source}")
                 return None
 
         except Exception as e:
@@ -121,15 +146,9 @@ class CitationExtractor:
             if num_pages >= 70:
                 allowed_doc_types = ["book", "thesis"]
                 page_count_hint = "book"
-                # If the user didn't specify a page range, use a default for books
-                if page_range == "1-5, -3": # Default value
-                    page_range = "1-5"
             else:
                 allowed_doc_types = ["journal", "bookchapter"]
                 page_count_hint = "journal"
-                # If the user didn't specify a page range, use a default for articles
-                if page_range == "1-5, -3": # Default value
-                    page_range = "1-3, -3"
 
             # Step 2: Create subset PDF from page range, if necessary
             is_temp_file = os.path.basename(doc_path).startswith(('tmp', 'ocr_', 'subset_')) or doc_path.startswith('/tmp/')
@@ -209,14 +228,13 @@ class CitationExtractor:
         text_direction: str,
         vertical_lang: str,
         page_range: str,
+        num_pages: int,
     ) -> Optional[Dict]:
         """Convert Office document to PDF and proceed with extraction as a PDF document."""
         temp_pdf_path = None
         try:
-            from .file_converter import convert_office_to_pdf_range, count_office_document_pages
+            from .file_converter import convert_office_to_pdf_range
 
-            print("📄 Counting pages in Office document...")
-            num_pages = count_office_document_pages(doc_path)
             if num_pages == 0:
                 logging.error(f"Could not read or count pages in Office file: {doc_path}")
                 return None
@@ -254,14 +272,13 @@ class CitationExtractor:
         text_direction: str,
         vertical_lang: str,
         page_range: str,
+        num_pages: int,
     ) -> Optional[Dict]:
         """Convert DJVU document to PDF and proceed with extraction."""
         temp_pdf_path = None
         try:
-            from .file_converter import convert_djvu_to_pdf_range, count_djvu_pages
+            from .file_converter import convert_djvu_to_pdf_range
 
-            print("📄 Counting pages in DJVU document...")
-            num_pages = count_djvu_pages(doc_path)
             if num_pages == 0:
                 logging.error(f"Could not read or count pages in DJVU file: {doc_path}")
                 return None
