@@ -93,6 +93,20 @@ result = ingest("paper.pdf", corpus_root="my_corpus", config=config)
 
 CiteIndex automatically detects the input type and routes to the correct pipeline:
 
+PDF routing is based on **usable existing text**, not whether the file was born
+digital. Searchable scans with readable text layers use the digital pipeline,
+including invisible OCR text over full-page images. At least 90% of nonblank
+pages must have usable text; up to 10% may be image-only or sparse pages (such as
+illustrations or title pages). For example, 91 text pages and 9 image-only pages
+use the digital pipeline. Those image-only pages are kept in the document but
+are not OCR'd; text contained only in their images is not extracted. Completely
+blank pages do not count against the threshold.
+
+Clearly garbled text still triggers OCR. These local quality checks cannot
+detect every transcription error; use `--force-ocr` when the existing text is
+wrong, or `--force-digital` to explicitly reuse it. Digital layout extraction
+also disables automatic OCR in PyMuPDF4LLM.
+
 ### Digital PDF
 
 ```

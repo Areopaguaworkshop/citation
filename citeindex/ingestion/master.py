@@ -71,7 +71,10 @@ class CiteIndexIngestionOrchestrator:
                         error_message=f"Failed to convert Office document: {input_ref}",
                         next_action="Ensure LibreOffice is installed",
                     )
-                resource_type = self._pdf_kind(temp_pdf, force_kind=cfg.force_pdf_kind)
+                resource_type = self._pdf_kind(
+                    temp_pdf, force_kind=cfg.force_pdf_kind,
+                    strip_existing_ocr=cfg.strip_existing_ocr,
+                )
                 normalized = temp_pdf
 
             elif resource_type == "djvu_document":
@@ -84,7 +87,10 @@ class CiteIndexIngestionOrchestrator:
                         error_message=f"Failed to convert DJVU document: {input_ref}",
                         next_action="Ensure djvulibre-bin is installed",
                     )
-                resource_type = self._pdf_kind(temp_pdf, force_kind=cfg.force_pdf_kind)
+                resource_type = self._pdf_kind(
+                    temp_pdf, force_kind=cfg.force_pdf_kind,
+                    strip_existing_ocr=cfg.strip_existing_ocr,
+                )
                 normalized = temp_pdf
 
             try:
@@ -235,7 +241,10 @@ class CiteIndexIngestionOrchestrator:
         ext = os.path.splitext(input_ref.lower())[1]
         if ext == ".pdf":
             force_kind = config.force_pdf_kind if config else None
-            return self._pdf_kind(input_ref, force_kind=force_kind), os.path.abspath(input_ref)
+            return self._pdf_kind(
+                input_ref, force_kind=force_kind,
+                strip_existing_ocr=config.strip_existing_ocr if config else False,
+            ), os.path.abspath(input_ref)
         if ext in _OFFICE_EXTENSIONS:
             return "office_document", os.path.abspath(input_ref)
         if ext in _DJVU_EXTENSIONS:
@@ -244,12 +253,14 @@ class CiteIndexIngestionOrchestrator:
             return "media", os.path.abspath(input_ref)
         return "unsupported", input_ref
 
-    def _pdf_kind(self, pdf_path: str, force_kind: Optional[str] = None) -> str:
+    def _pdf_kind(
+        self, pdf_path: str, force_kind: Optional[str] = None,
+        strip_existing_ocr: bool = False,
+    ) -> str:
         """Classify a PDF as digital, scanned, or mixed.
 
-        Uses a multi-layered heuristic inspired by docling (bitmap coverage)
-        and marker (text quality, OCR layer detection) to produce robust
-        per-page and document-level classification.
+        Reuses usable text layers, including searchable scans, and tolerates
+        occasional image-only pages. Doubtful text falls back to OCR.
 
         Parameters
         ----------
@@ -258,6 +269,8 @@ class CiteIndexIngestionOrchestrator:
         force_kind : str, optional
             Override classification. One of 'force_ocr', 'force_digital',
             'digital_pdf', 'scanned_pdf', 'mixed_pdf'.
+        strip_existing_ocr : bool
+            Reject existing OCR layers instead of reusing them.
 
         Returns
         -------
@@ -274,7 +287,9 @@ class CiteIndexIngestionOrchestrator:
         elif force_kind in ("digital_pdf", "scanned_pdf", "mixed_pdf"):
             force_doc_kind = DocumentKind(force_kind)
 
-        classification = classify_pdf(pdf_path, force_kind=force_doc_kind)
+        classification = classify_pdf(
+            pdf_path, force_kind=force_doc_kind, strip_existing_ocr=strip_existing_ocr,
+        )
         kind = classification.document_kind.value
         # For mixed_pdf, route to scanned pipeline (OCR handles both text and images)
         if classification.document_kind == DocumentKind.MIXED_PDF:

@@ -567,6 +567,17 @@ def _gnn_classified_blocks_to_layout(
             else:
                 gnn_body_blocks.append(block_dict)
 
+        if (
+            not any(
+                b["text"].strip()
+                for b in gnn_body_blocks + gnn_footnote_blocks + gnn_header_blocks + gnn_footer_blocks
+            )
+            and sep_doc[page_number - 1].get_text().strip()
+        ):
+            logger.warning("Layout omitted existing text on page %d; using text-layer layout", page_number)
+            results.append(analyze_page_layout(sep_doc[page_number - 1], page_number))
+            continue
+
         # ── Hybrid footnote detection ──
         # Run our heuristic on body blocks to catch footnotes the GNN missed.
         # However, only reclassify blocks as footnotes if:
@@ -703,7 +714,10 @@ def analyze_document_layout_pymupdf4llm(pdf_path: str) -> List[Dict[str, Any]]:
 
     doc = pymupdf.open(pdf_path)
     try:
-        pdoc = parse_document(doc, show_progress=False)
+        # This is the digital pipeline: reuse text inside pictures and never OCR.
+        pdoc = parse_document(doc, show_progress=False, use_ocr=False, force_text=True)
+        if len(pdoc.pages) != doc.page_count:
+            raise ValueError("Layout extraction omitted PDF pages")
         return _gnn_classified_blocks_to_layout(pdoc, pdf_path)
     except Exception:
         logger.warning("pymupdf4llm parse_document() failed, falling back", exc_info=True)

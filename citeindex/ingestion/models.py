@@ -53,7 +53,7 @@ class IngestionConfig:
     offline_verification: bool = False
     registry_contact_email: Optional[str] = None
     force_pdf_kind: Optional[str] = None  # 'force_ocr', 'force_digital', or None for auto-detect
-    strip_existing_ocr: bool = True  # treat OCR overlay text as unreliable during classification
+    strip_existing_ocr: bool = False  # optionally reject existing OCR layers during classification
 
 
 @dataclass
